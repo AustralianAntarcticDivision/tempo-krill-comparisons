@@ -1047,7 +1047,7 @@ visual.surface.present$class.strict <- droplevels(visual.surface.present$class.s
 
 visual.surface.present1 <- visual.surface.present[visual.surface.present$class.strict != "undetermined", ]
 visual.surface.present1$class.strict <- factor(visual.surface.present1$class.strict)
-visual.surface.present1$vis <- factor(visual.surface.present1$vis)
+visual.surface.present1$vis <- factor(visual.surface.present1$log.vis)
 
 glm.visual.surface <- glm(vis ~ L1 + class.strict, family = binomial(), data = visual.surface.present1)
 summary(glm.visual.surface)
