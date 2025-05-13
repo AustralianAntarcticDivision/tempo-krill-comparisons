@@ -1,0 +1,9 @@
+﻿Transect (oE),ASF (oS),ASF-N (oS),SBdy (oS),SACCF (oS),"Note: ASF = 0oC isotherm at 400m depth. ASF-N is the northern limit of the slope front = 0oC isotherm at 200m depth, and is likely more relevant for biological purposes."
+54,65.2,,64.1,63.3,added as an extrapolation
+55,65.3,65.22,64.45,63.5,
+60,65.85,65.7,65.53,63.8,
+65,66.7,64.9,64.68,64.5,Extrapolated for ASF. Note that ASF definition of 0oC at 400m states that it is not present. Visually looks like it is. Could change definiton to 0oC at 200m..?
+70,66.5,N/A,63.85,63.38,Extrapolated for ASF
+75,66.5,65.55,64.75,64.17,
+80,65.05,65.05,64.98,64.93,"Note that this is likely an eddy off the ASF, given it shape and location. So these frontal locations should be taken with a grain of salt."
+82,65,,64.6,64.4,added as an extrapolation

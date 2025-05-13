@@ -1,0 +1,1579 @@
+---
+title: "TEMPO qPCR krill - data"
+author: "Leonie Suter, Ben Raymond, Martin Cox, Simon Wotherspoon"
+date: "`r Sys.Date()`"
+output:
+  word_document:
+    toc: yes
+  html_document:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    warning: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r read-libraries}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(ncdf4)
+library(sf)
+library(units)
+
+```
+
+# Limit of detection and quantification
+
+
+
+The following script is sourced and modified from Klymus et al. 2019:
+
+> Klymus, K. E., Merkes, C. M., Allison, M. J., Goldberg, C. S., Helbing, C. C., Hunter, M. E., ... & Richter, C. A. (2020). Reporting the limits of detection and quantification for environmental DNA assays. Environmental DNA, 2(3), 271-282.
+
+Script available through https://github.com/cmerkes/qPCR_LOD_Calc
+
+Note: the script was originally modified by Georgia Nester (see e.g. Suter et al. 2023), and further modified for this study.
+
+## Read and check the data
+
+```{r LOD-LOQ-load-data, eval=FALSE}
+## Load packages:
+
+## Read in your data file (MODIFY FILE NAME AS NEEDED):
+DAT <- read.csv("data/LOD-LOQ/LOD-LOQ-manuscript.csv")
+DAT <- subset(DAT, Status != "outlier")
+
+## Define your CV threshold for LoQ:
+LOQ.Threshold <- 0.35
+#getMeanFunctions()
+## Define which logarithmic function to use for LoD model:
+LOD.FCT <- "Best"
+## Selecting "Best" will signal the code to automatically select the best fitting
+##   model choice. Run the function getMeanFunctions() to print the list of all choices.
+## Example: LOD.FCT <- W2.4()
+##   This example will use the Weibull type II, 4 parameter function.
+
+## Define which model to use for LoQ model:
+LOQ.FCT <- "Best"
+## Selecting "Best" will signal the code to automatically select the model with lowest
+##   residual standard error. Change to "Decay" to use exponential decay model, "Linear"
+##   to use linear model, "Pn" to use an nth-order polynomial model where n is numerical.
+##   Example: "P2" will use a 2nd order polynomial model, "P3" will use 3rd order, and etc.
+##   Selecting "Best" will test polynomial models up to 6th-order.
+
+## Create an analysis log file:
+write(paste0("Analysis started: ",date(),"\n\n"), file = "data/Analysis Log.txt")
+
+## Check the data:
+if(sum(colnames(DAT)=="Target")!=1) { #Is there a "Target" column?
+    A <- grep("target",colnames(DAT),ignore.case=TRUE)
+    if(length(A)==1) { colnames(DAT)[A] <- "Target" } #Rename target column if it is mispelled but can be identified and there is only 1.
+    if(length(A)!=1) { write("There is a problem with the 'Target' column.\n\n", file = "data/Analysis Log.txt", append = TRUE) } #Add error message to analysis log.
+    if(length(A)>1) { cat("ERROR: multiple 'Target' columns detected.",colnames(DAT)[A],sep="\n") }
+    if(length(A)==0) { print("ERROR: cannot detect 'Target' column.") }
+}
+if(sum(colnames(DAT)=="Cq")!=1) { #Is there a "Cq" column?
+    A <- grep("cq|ct|cycle",colnames(DAT),ignore.case=TRUE)
+    if(length(A)==1) { colnames(DAT)[A] <- "Cq" } #Rename cq column if it is mispelled but can be identified and there is only 1.
+    if(length(A)!=1) { write("There is a problem with the 'Cq' column.\n\n", file = "data/Analysis Log.txt", append = TRUE) } #Add error message to analysis log.
+    if(length(A)>1) { cat("ERROR: multiple 'Cq' columns detected.",colnames(DAT)[A],sep="\n") }
+    if(length(A)==0) { print("ERROR: cannot detect 'Cq' column.") }
+}
+if(sum(colnames(DAT)=="SQ")!=1) { #Is there a "SQ" column?
+    A <- grep("sq|copies|starting|quantity",colnames(DAT),ignore.case=TRUE)
+    if(length(A)==1) { colnames(DAT)[A] <- "SQ" } #Rename SQ column if it is mispelled but can be identified and there is only 1.
+    if(length(A)!=1) { write("There is a problem with the 'SQ' column.\n\n", file = "data/Analysis Log.txt", append = TRUE) } #Add error message to analysis log.
+    if(length(A)>1) { cat("ERROR: multiple 'SQ' columns detected.",colnames(DAT)[A],sep="\n") }
+    if(length(A)==0) { print("ERROR: cannot detect 'SQ' column.") }
+}
+
+## Ensure data is in the proper format:
+DAT$Target <- as.factor(DAT$Target)
+DAT$Cq <- suppressWarnings(as.numeric(as.character(DAT$Cq))) #Non-numerical values (i.e. negative wells) will be converted to NAs
+DAT$SQ <- suppressWarnings(as.numeric(as.character(DAT$SQ))) #Non-numerical values (i.e. NTC) will be converted to NAs
+if(sum(is.na(DAT$SQ))>0) {
+    write(paste0("WARNING: ", sum(is.na(DAT$SQ))," data points excluded without a valid starting quantity (SQ)!\nHere is a sample of the data being excluded:\n"),
+          file = "data/Analysis Log.txt", append = TRUE)
+    suppressWarnings(write.table(head(DAT[is.na(DAT$SQ),]), file = "data/Analysis Log.txt", append = TRUE,
+                                 sep="\t",eol="\n", row.names = FALSE, col.names = TRUE))
+    write("\n", file = "data/Analysis Log.txt", append = TRUE)
+    print(paste0("WARNING: ",sum(is.na(DAT$SQ))," data points excluded without a valid starting quantity (SQ)!"))
+    print(head(DAT[is.na(DAT$SQ),]))
+}
+
+## Check for wild outliers that the user should go back and review:
+Targets <- unique(DAT$Target)
+## Get matchups of all standards and markers used:
+for(i in 1:length(Targets)) {
+    if(i==1) {
+        Standards <- unique(DAT$SQ[DAT$Target==Targets[i]&!is.na(DAT$SQ)])
+        Target <- rep(as.character(Targets[i]),length(Standards))
+    }
+    else {
+        Standards <- c(Standards,unique(DAT$SQ[DAT$Target==Targets[i]&!is.na(DAT$SQ)]))
+        Target <- c(Target,rep(as.character(Targets[i]),
+                               length(unique(DAT$SQ[DAT$Target==Targets[i]&!is.na(DAT$SQ)]))))
+    }
+}
+OUTS <- data.frame(Target=Target,Standard=Standards,Outliers=NA)
+## Identify any wells where the Cq value is more than 10% away from the median for
+##   that standard.
+for(i in 1:nrow(OUTS)) {
+    MED <- median(DAT$Cq[DAT$SQ==OUTS$Standard[i]&DAT$Target==OUTS$Target[i]], na.rm = TRUE)
+    A <- which(DAT$SQ==OUTS$Standard[i]&DAT$Target==OUTS$Target[i]&DAT$Cq<0.9*MED&!is.na(DAT$Cq))
+    B <- which(DAT$SQ==OUTS$Standard[i]&DAT$Target==OUTS$Target[i]&DAT$Cq>1.1*MED&!is.na(DAT$Cq))
+    if(length(c(A,B))>0) {
+        OUTS$Outliers[i] <- paste(c(A,B),collapse=",")
+    }
+}
+## If any outliers are detected, export the raw data as csv and make a note in
+##   the analysis log.
+if(sum(!is.na(OUTS$Outliers))>0) {
+    OUT.ROW <- paste(OUTS$Outliers[!is.na(OUTS$Outliers)],collapse=",")
+    OUT.ROW2 <- unlist(strsplit(OUT.ROW,split=","))
+    write.csv(DAT[OUT.ROW2,],file = "data/Potential-Outliers.csv", row.names = FALSE)
+    write("Potential outliers have been detected. Please review the data exported as
+Potential-Outliers.csv, and determine if any data points need to be excluded
+or adjusted due to false positives or poorly normalized baselines.",
+file = "data/Analysis Log.txt", append = TRUE)
+    write("\n", file = "data/Analysis Log.txt", append = TRUE)
+}
+```
+
+## Generate standard curves
+
+```{r LOD-LOQ-standard-curves, eval=FALSE}
+
+## Generate standard curves using all data and calculate copy estimates for each
+##   replicate using the curves:
+curve.list <- ""
+DAT$Copy.Estimate <- rep(NA,nrow(DAT))
+DAT$Mod <- rep(0,nrow(DAT))
+for(i in 1:length(Targets)) {
+  STDS <- data.frame(S=unique(DAT$SQ[DAT$Target==Targets[i]]),R=NA)
+  ## Calculate detection rates for each standard:
+  for(j in 1:nrow(STDS)) {
+    STDS$R[j] <- sum(!is.na(DAT$Cq)&DAT$SQ==STDS$S[j]&DAT$Target==Targets[i], na.rm = TRUE)/sum(DAT$SQ==STDS$S[j]&DAT$Target==Targets[i], na.rm = TRUE)
+  }
+  ## Only use standards with 50% or greater detection rates for linear regression:
+  if(sum(STDS$R>=0.5, na.rm = TRUE)>2) {
+    STDS2 <- STDS$S[STDS$R>=0.5&!is.na(STDS$R)&!is.na(STDS$S)]
+  }
+  ## If there are not at least 3 standards with 50% or greater detection, use the top 3:
+  if(sum(STDS$R>=0.5, na.rm = TRUE)<3) {
+    STDS2 <- STDS$S[order(STDS$R,decreasing=TRUE)][1:3]
+  }
+  ## Identify the 2nd and 3rd quartiles of each used standard for inclusion in the
+  ##   standard curve calculations
+  for(j in 1:length(STDS2)) {
+    D <- DAT$Cq[DAT$Target==Targets[i]&DAT$SQ==STDS2[j]]
+    DAT$Mod[DAT$Target==Targets[i]&DAT$SQ==STDS2[j]&DAT$Cq>=quantile(D, na.rm = TRUE)[2]&DAT$Cq<=quantile(D, na.rm = TRUE)[4]&!is.na(DAT$SQ)] <- 1
+  }
+  if(length(unique(DAT$SQ[DAT$Target==Targets[i]]))!=length(STDS2)) {
+    ToWrite <- paste0("These standards not included in ",Targets[i],
+                      " standard curve regression for copy estimate calculations, because they detected below 50%: ",
+                      paste(setdiff(unique(DAT$SQ[DAT$Target==Targets[i]]),STDS2),collapse=", "),"\n\n")
+    write(ToWrite, file = "data/Analysis Log.txt", append = TRUE)
+  }
+  assign(paste0("curve",i),lm(Cq~log10(SQ),data=DAT[DAT$Target==Targets[i]&DAT$Mod==1,]))
+  curve.list <- c(curve.list,paste0("curve",i))
+  Intercept <- coef(get(curve.list[i+1]))[1]
+  Slope <- coef(get(curve.list[i+1]))[2]
+  DAT$Copy.Estimate[DAT$Target==Targets[i]] <- 10^((DAT$Cq[DAT$Target==Targets[i]]-Intercept)/Slope)
+}
+
+
+## Summarize the data:
+DAT2 <- data.frame(Standards=Standards,Target=Target,Reps=NA,Detects=NA,Cq.mean=NA,
+                   Cq.sd=NA,Copy.CV=NA,Cq.CV=NA)
+## Fill in replicate counts, positive detect counts, mean Cq values, standard
+##   deviations of Cq values, and coefficient of variation of copy estimates for
+##   each standard and marker combination:
+for(i in 1:nrow(DAT2)) {
+  DAT2$Reps[i] <- sum(DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i], na.rm = TRUE)
+  DAT2$Detects[i] <- sum(!is.na(DAT$Cq)&DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i], na.rm = TRUE)
+  DAT2$Cq.mean[i] <- mean(DAT$Cq[DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i]], na.rm = TRUE)
+  DAT2$Cq.sd[i] <- sd(DAT$Cq[DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i]], na.rm = TRUE)
+  DAT2$Copy.CV[i] <- sd(DAT$Copy.Estimate[DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i]], na.rm = TRUE)/mean(DAT$Copy.Estimate[DAT$SQ==DAT2$Standards[i]&DAT$Target==DAT2$Target[i]], na.rm = TRUE)
+  DAT2$Cq.CV[i] <- sqrt(2^(DAT2$Cq.sd[i]^2*log(2))-1)
+}
+## Calculate positive detection rate for each standard and marker combination:
+DAT2$Rate <- DAT2$Detects/DAT2$Reps
+write("Data Summary:", file = "data/Analysis Log.txt", append = TRUE)
+suppressWarnings(write.table(DAT2, file = "data/Analysis Log.txt", append = TRUE, sep = "\t", eol = "\n", row.names = FALSE, col.names = TRUE))
+
+```
+
+
+## Calculate LOD with at least 95% detection
+
+```{r Calculate-LOD, eval = FALSE}
+
+## Determine the lowest standard with 95% or greater detection:
+for(i in 1:length(Targets)) {
+  A <- min(DAT2$Standards[DAT2$Rate>=0.95&DAT2$Target==Targets[i]])
+  ToWrite <- paste0("For ",Targets[i],", the lowest standard with 95% or greater detection is: ",A," copies/reaction.")
+  ToWrite2 <- ""
+  if(length(which(DAT2$Rate<0.95&DAT2$Target==Targets[i]))>0) {
+    B <- max(DAT2$Standards[DAT2$Rate<0.95&DAT2$Target==Targets[i]])
+    if(B>A) {
+      ToWrite2 <- paste0("WARNING: For ",Targets[i],", ",B," copies/reaction standard detected at lower rate than ",A," copies/reaction standard.\nPlease retest.")
+    }
+  }
+  if(length(which(DAT2$Rate<0.95&DAT2$Target==Targets[i]))==0) {
+    ToWrite2 <- paste0("WARNING: LoD cannot be determined for ",Targets[i],", because it is lower than the lowest standard you tested.\nReport as <",A," copies/reaction, or retest with lower concentrations.")
+  }
+  write(paste0("\n\n",ToWrite,"\n"), file = "data/Analysis Log.txt", append = TRUE)
+  if(ToWrite2!="") { write(paste0(ToWrite2,"\n\n"), file = "data/Analysis Log.txt", append = TRUE) }
+  cat(ToWrite,ToWrite2,sep="\n")
+}
+
+```
+
+## Model LOD and LOQ
+
+```{r Model-LOD-LOQ, eval = FALSE}
+
+## Determine LoD and LoQ by modeling, and summarize each assay:
+## NOTE: LoD is now determined by dose-response modeling. Probit modeling code remains,
+##         but has been converted to comments.
+DAT$Detect <- as.numeric(!is.na(DAT$Cq))
+#LOD.list <- ""
+LOD.list2 <- ""
+LOD.list3 <- ""
+LOQ.list <- ""
+DAT3 <- data.frame(Assay=Targets,R.squared=NA,Slope=NA,Intercept=NA,Low.95=NA,
+                   LOD=NA,LOQ=NA,rep2.LOD=NA,rep3.LOD=NA,rep4.LOD=NA,rep5.LOD=NA,rep8.LOD=NA)
+LOD.FCTS <- list(LL.2(),LL.3(),LL.3u(),LL.4(),LL.5(),W1.2(),W1.3(),W1.4(),W2.2(),W2.3(),
+                 W2.4(),AR.2(),AR.3(),MM.2(),MM.3())
+for(i in 1:length(Targets)) {
+  ## Check input suitability for probit or dose-response modeling:
+  if(sum(DAT2$Rate[DAT2$Target==Targets[i]]!=1&DAT2$Rate[DAT2$Target==Targets[i]]!=0)==0) {
+    ToWrite <- paste0("WARNING: For ",Targets[i],", all standards detected fully or failed fully.  Therefore, the LoD model will not converge.")
+    write(paste0(ToWrite,"\n\n"), file = "data/Analysis Log.txt", append = TRUE)
+    print(ToWrite)
+  }
+  if(sum(DAT2$Rate[DAT2$Target==Targets[i]]!=1&DAT2$Rate[DAT2$Target==Targets[i]]!=0)==1) {
+    ToWrite <- paste0("WARNING: For ",Targets[i],", only 1 standard detected in the informative range (not 0% and not 100%).  Therefore, the LoD model results will be less reliable.")
+    write(paste0(ToWrite,"\n\n"), file = "data/Analysis Log.txt", append = TRUE)
+    print(ToWrite)
+  }
+  ## Define probit model:
+  #assign(paste0("LOD.mod",i),glm(Detect~SQ,data=DAT[DAT$Target==Targets[i],],
+  #                               family=binomial(link="probit")))
+  #LOD.list <- c(LOD.list,paste0("LOD.mod",i))
+  ## Define LOQ model using lowest residual standard error selection:
+  if(LOQ.FCT=="Best") {
+    ## Remove previous marker LOQ models from environment if they exist:
+    suppressWarnings(rm(LOQ1,LOQ2,LOQ3,LOQ4,LOQ5,LOQ6,LOQ7))
+    tryCatch({ #skip if model cannot be determined.
+      LOQ1 <- nls(Cq.CV~SSasymp(log10(Standards),Asym,R0,lrc),
+                  data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: decay LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ2 <- lm(Cq.CV~log10(Standards),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: linear LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ3 <- lm(Cq.CV~poly(log10(Standards),2),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: 2nd polynomial LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ4 <- lm(Cq.CV~poly(log10(Standards),3),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: 3rd polynomial LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ5 <- lm(Cq.CV~poly(log10(Standards),4),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: 4th polynomial LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ6 <- lm(Cq.CV~poly(log10(Standards),5),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: 5th polynomial LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    tryCatch({ #skip if model cannot be determined.
+      LOQ7 <- lm(Cq.CV~poly(log10(Standards),6),data=DAT2[DAT2$Target==Targets[i],])
+    }, error=function(e) {
+      e
+      cat("ERROR: 6th polynomial LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+    ## Determine which models were able to be determined:
+    A <- sapply(c("LOQ1","LOQ2","LOQ3","LOQ4","LOQ5","LOQ6","LOQ7"),exists)
+    B <- names(A)[A==TRUE]
+    ## If at least 1 LOQ model was determined, select the one with the lowest
+    ##   residual standard error:
+    if(length(B)>0) {
+      LOQ.res <- rep(NA,length(B))
+      for(j in 1:length(B)) {
+        LOQ.res[j] <- summary(get(B[j]))$sigma
+      }
+      C <- which(LOQ.res==min(LOQ.res, na.rm = TRUE))
+      assign(paste0("LOQ.mod",i),get(B[C]))
+      LOQ.list <- c(LOQ.list,paste0("LOQ.mod",i))
+    }
+  }
+  ## Define LOQ model by exponential decay modeling:
+  if(LOQ.FCT=="Decay") {
+    tryCatch({ #skip if model cannot be determined.
+      assign(paste0("LOQ.mod",i),nls(Cq.CV~SSasymp(log10(Standards),Asym,R0,lrc),
+                                     data=DAT2[DAT2$Target==Targets[i],]))
+      LOQ.list <- c(LOQ.list,paste0("LOQ.mod",i))
+    }, error=function(e) {
+      e
+      cat("ERROR: decay LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+  }
+  ## Define LOQ model by linear modeling:
+  if(LOQ.FCT=="Linear") {
+    tryCatch({ #skip if model cannot be determined.
+      assign(paste0("LOQ.mod",i),lm(Cq.CV~log10(Standards),
+                                    data=DAT2[DAT2$Target==Targets[i],]))
+      LOQ.list <- c(LOQ.list,paste0("LOQ.mod",i))
+    }, error=function(e) {
+      e
+      cat("ERROR: linear LOQ model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+  }
+  ## Define LOQ model by polynomial modeling:
+  if(substr(LOQ.FCT,1,1)=="P") {
+    Z <- as.numeric(substr(LOQ.FCT,2,nchar(LOQ.FCT)))
+    tryCatch({ #skip if model cannot be determined.
+      assign(paste0("LOQ.mod",i),lm(Cq.CV~poly(log10(Standards),Z),
+                                    data=DAT2[DAT2$Target==Targets[i],]))
+      LOQ.list <- c(LOQ.list,paste0("LOQ.mod",i))
+    }, error=function(e) {
+      e
+      cat("ERROR: ",Z,"-order polynomial LOQ model cannot be defined for ",
+          as.character(Targets[i]),sep="")
+    })
+  }
+  ## Signal undetermined model with NA:
+  if(length(LOQ.list)<i+1) {
+    LOQ.list <- c(LOQ.list,NA)
+  }
+  ## Define the logarithmic model for LOD using user-selected function:
+  if(is.list(LOD.FCT)==TRUE) {
+    tryCatch({ #skip if model cannot be determined.
+      assign(paste0("LOD.mod2",i),drm(Detect~SQ,data=DAT[DAT$Target==Targets[i],],fct=LOD.FCT))
+      LOD.list2 <- c(LOD.list2,paste0("LOD.mod2",i))
+      LOD.list3 <- c(LOD.list3,LOD.FCT$name)
+    }, error=function(e) {
+      e
+      cat("ERROR: LOD model cannot be defined for ",as.character(Targets[i]),sep="")
+    })
+  }
+  ## Define the logarithmic model with function automatically selected:
+  if(is.character(LOD.FCT)) {
+    if(LOD.FCT=="Best") {
+      tryCatch({ #skip if model cannot be determined.
+        ## Pull out data for specific assay:
+        TEMP.DAT <- DAT[DAT$Target==Targets[i],]
+        ## Define a model to start with:
+        LOD.mod <- drm(Detect~SQ,data=TEMP.DAT,fct=W2.4())
+        ## Test all available models and select the best one:
+        LOD.FCT2 <- row.names(mselect(LOD.mod,LOD.FCTS))[1]
+        LOD.FCT3 <- getMeanFunctions(fname=LOD.FCT2)
+        assign(paste0("LOD.mod2",i),drm(Detect~SQ,data=DAT[DAT$Target==Targets[i],],fct=LOD.FCT3[[1]]))
+        LOD.list2 <- c(LOD.list2,paste0("LOD.mod2",i))
+        LOD.list3 <- c(LOD.list3,LOD.FCT2)
+      }, error=function(e) {
+        e
+        cat("ERROR: LOD model cannot be defined for ",as.character(Targets[i]),sep="")
+      })
+    }
+  }
+  ## Signal undetermined model with NA:
+  if(length(LOD.list2)<i+1) {
+    LOD.list2 <- c(LOD.list2,NA)
+    LOD.list3 <- c(LOD.list3,NA)
+  }
+  ## Populate summary data:
+  DAT3$R.squared[i] <- summary(get(curve.list[i+1]))$r.squared
+  DAT3$Slope[i] <- coef(get(curve.list[i+1]))[2]
+  DAT3$Intercept[i] <- coef(get(curve.list[i+1]))[1]
+  DAT3$Low.95[i] <- min(DAT2$Standards[DAT2$Rate>=0.95&DAT2$Target==Targets[i]])
+  ## Only get LOD values if the LOD model is defined:
+  if(!is.na(LOD.list2[i+1])) {
+    DAT3$LOD[i] <- ED(get(LOD.list2[i+1]),0.95,type="absolute")[1]
+    DAT3$rep2.LOD[i] <- ED(get(LOD.list2[i+1]),1-sqrt(0.05),type="absolute")[1]
+    DAT3$rep3.LOD[i] <- ED(get(LOD.list2[i+1]),1-0.05^(1/3),type="absolute")[1]
+    DAT3$rep4.LOD[i] <- ED(get(LOD.list2[i+1]),1-0.05^0.25,type="absolute")[1]
+    DAT3$rep5.LOD[i] <- ED(get(LOD.list2[i+1]),1-0.05^0.2,type="absolute")[1]
+    DAT3$rep8.LOD[i] <- ED(get(LOD.list2[i+1]),1-0.05^0.125,type="absolute")[1]
+    ## Residual code using probit method:
+    #DAT3$LOD[i] <- (qnorm(0.95)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+    #DAT3$rep2.LOD[i] <- (qnorm(0.50)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+    #DAT3$rep3.LOD[i] <- (qnorm(1/3)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+    #DAT3$rep4.LOD[i] <- (qnorm(0.25)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+    #DAT3$rep5.LOD[i] <- (qnorm(0.2)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+    #DAT3$rep8.LOD[i] <- (qnorm(0.125)-coef(get(LOD.list[i+1]))[1])/coef(get(LOD.list[i+1]))[2]
+  }
+  ## Generate prediction data for LoQ:
+  ## Only get LOQ if LOQ model is determined:
+  if(!is.na(LOQ.list[i+1])) {
+    newData <- data.frame(Standards = seq(1, 10000))
+    newData$Cq.CV <- predict(get(LOQ.list[i+1]), newData)
+    ## Determine what type of LOQ model is used and calculate LOQ accordingly:
+    ## For exponential decay:
+    if(as.character(get(LOQ.list[i+1])$call)[1]=="nls") {
+      ## Look up lowest modeled standard below the CV threshold:
+      DAT3$LOQ[i] <- min(newData$Standards[newData$Cq.CV<=LOQ.Threshold])
+      ## Unless... If the background variation exceeds the CV threshold, adjust threshold:
+      ## Determine the highest standard used:
+      A <- max(DAT2$Standards[DAT2$Target==Targets[i]])
+      if(min(newData$Cq.CV[newData$Standards<=A])>LOQ.Threshold) {
+        ## Set the adjusted threshold to 1.5x the lowest simulated Cq.CV 
+        ##   within the range of data tested:
+        B <- min(newData$Cq.CV[newData$Standards<=A])
+        DAT3$LOQ[i] <- min(newData$Standards[newData$Cq.CV<=B*1.5])
+        ## Make a note of the adjusted threshold in the analysis log:
+        ToWrite <- paste0("Note: All standards tested for ",Targets[i],
+                          " yielded higher Cq.CV values than the user-defined CV threshold of ",
+                          LOQ.Threshold,". The CV threshold has been adjusted to ",
+                          B*1.5," for the LOQ of this marker.")
+        write(paste0(ToWrite,"\n\n"), file = "data/Analysis Log.txt", append = TRUE)
+      }
+    }
+    if(as.character(get(LOQ.list[i+1])$call)[1]=="lm") {
+      ## For polynomial:
+      if(grepl("poly",as.character(get(LOQ.list[i+1])$call)[2])==TRUE) {
+        ## Determine the highest standard used:
+        A <- max(DAT2$Standards[DAT2$Target==Targets[i]])
+        ## Adjust if the tested range does not cross below the CV threshold:
+        if(min(DAT2$Cq.CV[DAT2$Target==Targets[i]], na.rm = TRUE)>LOQ.Threshold) {
+          B <- min(DAT2$Cq.CV[DAT2$Target==Targets[i]], na.rm = TRUE)*1.5
+          ## Make a note of the adjusted threshold in the analysis log:
+          ToWrite <- paste0("Note: All standards tested for ",Targets[i],
+                            " yielded higher Cq.CV values than the user-defined CV threshold of ",
+                            LOQ.Threshold,". The CV threshold has been adjusted to ",
+                            B," for the LOQ of this marker.")
+          write(paste0(ToWrite,"\n\n"), file = "data/Analysis Log.txt", append = TRUE)
+        }
+        else {
+          B <- LOQ.Threshold
+        }
+        ## Look up highest modeled standard below the CV threshold:
+        C <- max(newData$Standards[newData$Cq.CV<=B&newData$Standards<=A])
+        ## Look up the highest modeled standard above the CV threshold...
+        ##   and also below the highest standard below the CV threshold.
+        ##   This captures the farthest right crossing point on a downward slope.
+        D <- max(newData$Standards[newData$Cq.CV>B&newData$Standards<C])
+        ## LOQ is D + 1 to get back less than or equal to the CV threshold.
+        DAT3$LOQ[i] <- D+1
+      }
+      # For linear:
+      else {
+        ## Look up lowest modeled standard below the CV threshold:
+        DAT3$LOQ[i] <- min(newData$Standards[newData$Cq.CV<=LOQ.Threshold])
+      }
+    }
+    ## If modeled LOQ is calculated to be below the 95% LOD, set LOD as LOQ:
+    if(is.na(DAT3$LOD[i])==FALSE) {
+      if(DAT3$LOQ[i]<DAT3$LOD[i]) {
+        DAT3$LOQ[i] <- DAT3$LOD[i]
+      }
+    }
+    ## If modeled LOQ is calculated to be below the lowest standard tested,
+    ##   set the lowest standard as the LOQ:
+    if(DAT3$LOQ[i]<min(DAT2$Standards[DAT2$Target==Targets[i]])) {
+      DAT3$LOQ[i] <- min(DAT2$Standards[DAT2$Target==Targets[i]])
+    }
+  }
+}
+write("Assay summary:", file = "data/Analysis Log.txt", append = TRUE)
+write("\nR.squared: The R-squared value of linear regression of all standards Cq-values vs log10 of the starting quantities.", file = "data/Analysis Log.txt", append = TRUE)
+write("Slope: The slope of the linear regression.", file = "data/Analysis Log.txt", append = TRUE)
+write("Intercept: The y-intercept of the linear regression.", file = "data/Analysis Log.txt", append = TRUE)
+write("\nLow.95: The lowest standard with at least 95% positive detection.", file = "data/Analysis Log.txt", append = TRUE)
+write("LOD: The 95% limit of detection as determined by probit modeling.", file = "data/Analysis Log.txt", append = TRUE)
+write(paste0("LOQ: The limit of quantification as determined by decay modeling, using the user-selected CV threshold of: ",LOQ.Threshold), file = "data/Analysis Log.txt", append = TRUE)
+write("\nrep2.LOD: The effective limit of detection if analyzing in 2 replicates.", file = "data/Analysis Log.txt", append = TRUE)
+write("rep3.LOD: The effective limit of detection if analyzing in 3 replicates.", file = "data/Analysis Log.txt", append = TRUE)
+write("rep4.LOD: The effective limit of detection if analyzing in 4 replicates.", file = "data/Analysis Log.txt", append = TRUE)
+write("rep5.LOD: The effective limit of detection if analyzing in 5 replicates.", file = "data/Analysis Log.txt", append = TRUE)
+write("rep8.LOD: The effective limit of detection if analyzing in 8 replicates.\n\n", file = "data/Analysis Log.txt", append = TRUE)
+write.csv(DAT3, file = "data/Assay summary.csv", row.names = FALSE)
+
+```
+
+## Plot Cq vs Standard concentration standard curves
+
+```{r Plot-Cq-Standardcurves, eval=FALSE}
+
+## Plot Cq value vs Standard Concentration standard curves:
+DAT$Mod[DAT$Mod==0] <- "Excluded"
+DAT$Mod[DAT$Mod==1] <- "Modeled"
+
+i=1
+ggOut.small <- ggplot(data=DAT[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE,],
+                  aes(x=SQ,y=Cq,color=factor(Mod),shape=factor(Mod),size=factor(Mod))) + 
+    geom_jitter(width=0.1,alpha=0.75) + 
+    scale_shape_manual("",values=c(3,20),guide=FALSE) +
+    scale_size_manual("",values=c(1,3)) +
+    scale_x_log10() +
+    scale_color_manual("",values=c("blue", "black")) +
+    xlab("Standard Concentrations (copies / reaction)") +
+    ylab("Cq-value") +
+    geom_abline(intercept=coef(get(curve.list[i+1]))[1],
+                slope=coef(get(curve.list[i+1]))[2]) +
+    geom_vline(xintercept=DAT3$LOD[i],colour="red", linetype = 2) +
+    geom_vline(xintercept=DAT3$rep3.LOD[i],colour="red", linetype = 2) +
+    geom_vline(xintercept=DAT3$LOQ[i],linetype=2) +
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.8,color="red",
+             x=DAT3$LOD[i]*0.8,angle=90,label="LOD (1 replica)") +
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.8,color="red",
+             x=DAT3$rep3.LOD[i]*0.8,angle=90,label="LOD (3 replica)")+
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.94,
+             x=DAT3$LOQ[i]*0.8,angle=90,label="LOQ") +
+    theme_bw() + theme(legend.justification=c(1,1),legend.position=c(1,0.99)) +
+    ggtitle("Standard curve for short marker") +
+    theme(plot.title=element_text(hjust=0.5,size=20),
+          axis.title=element_text(size=16)) +
+    theme(legend.title=element_blank(),
+          legend.text=element_text(size=11)) +
+    annotate("text",y=min(DAT$Cq[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE], na.rm = TRUE)*1.05,
+             x=min(DAT$SQ[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE], na.rm = TRUE)*1.01,hjust=0,
+             label=(paste0("R-squared: ",format(round(DAT3$R.squared[i], 2), nsmall = 2),"\ny = ",
+                           format(round(DAT3$Slope[i], 2), nsmall = 2),"x + ",format(round(DAT3$Intercept[i], 2), nsmall = 2))))
+
+
+i=2
+ggOut.large <- ggplot(data=DAT[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE,],
+                  aes(x=SQ,y=Cq,color=factor(Mod),shape=factor(Mod),size=factor(Mod))) + 
+    geom_jitter(width=0.1,alpha=0.75) + 
+    scale_shape_manual("",values=c(3,20),guide=FALSE) +
+    scale_size_manual("",values=c(1,3)) +
+    scale_x_log10() +
+    scale_color_manual("",values=c("blue", "black")) +
+    xlab("Standard Concentrations (copies / reaction)") +
+    ylab("Cq-value") +
+    geom_abline(intercept=coef(get(curve.list[i+1]))[1],
+                slope=coef(get(curve.list[i+1]))[2]) +
+    geom_vline(xintercept=DAT3$LOD[i],colour="red", linetype = 2) +
+    geom_vline(xintercept=DAT3$rep3.LOD[i],colour="red", linetype = 2) +
+    geom_vline(xintercept=DAT3$LOQ[i],linetype=2) +
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.8,color="red",
+             x=DAT3$LOD[i]*0.8,angle=90,label="LOD (1 replica)") +
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.8,color="red",
+             x=DAT3$rep3.LOD[i]*0.8,angle=90,label="LOD (3 replica)")+
+    annotate("text",y=max(DAT$Cq[DAT$Target==Targets[i]], na.rm = TRUE)*0.94,
+             x=DAT3$LOQ[i]*0.8,angle=90,label="LOQ") +
+    theme_bw() + theme(legend.justification=c(1,1),legend.position=c(1,0.99)) +
+    ggtitle("Standard curve for long marker") +
+    theme(plot.title=element_text(hjust=0.5,size=20),
+          axis.title=element_text(size=16)) +
+    theme(legend.title=element_blank(),
+          legend.text=element_text(size=11)) +
+    annotate("text",y=min(DAT$Cq[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE], na.rm = TRUE)*1.05,
+             x=min(DAT$SQ[DAT$Target==Targets[i]&is.na(DAT$SQ)==FALSE], na.rm = TRUE)*1.01,hjust=0,
+             label=(paste0("R-squared: ",format(round(DAT3$R.squared[i], 2), nsmall = 2),"\ny = ",
+                           format(round(DAT3$Slope[i], 2), nsmall = 2),"x + ",format(round(DAT3$Intercept[i], 2), nsmall = 2))))
+
+ggOut.small
+ggOut.large
+
+
+
+#jpeg(filename = "Supplemental material/Standard.Curve.Short.Marker.jpg", width = 6, height = 5, units = "in", quality = 100, res = #600)
+#ggOut.small
+#dev.off()
+#
+#jpeg(filename = "Supplemental material/Standard.Curve.Long.Marker.jpg", width = 6, height = 5, units = "in", quality = 100, res = #600)
+#ggOut.large
+#dev.off()
+
+```
+
+
+## Plot LOD model for each assay
+
+```{r Plot-LOD-model, eval = FALSE}
+
+## Plot the LOD models for each assay:
+i=1
+
+DAT4 <- rbind(ED(get(LOD.list2[i+1]),0.95,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-sqrt(0.05),interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^(1/3),interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.25,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.2,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.125,interval="delta",type="absolute"))
+   
+DAT4 <- data.frame(DAT4,LoD=c("1rep.LOD","2rep.LOD","3rep.LOD","4rep.LOD",
+                              "5rep.LOD","8rep.LOD"),
+                   Assay=rep(Targets[i],nrow(DAT4)))
+DAT4$Assay <- as.character(DAT4$Assay)
+LOD.CI <- DAT4
+
+
+LODS <- sum(!is.na(DAT4[,1]))
+COLS <- c(rgb(0.8,0.47,0.65),rgb(0,0.45,0.7),rgb(0,0,0),
+          rgb(0.84,0.37,0),rgb(0,0.62,0.45),rgb(0.90,0.62,0))
+PNTS <- c(15,16,17,18,25,3)
+YS <- c(0.95,1-sqrt(0.05),1-0.05^(1/3),1-0.05^0.25,1-0.05^0.2,1-0.05^0.125)
+LODS2 <- c("Limit of Detection","2 Replicates LoD","3 Replicates LoD",
+           "4 Replicates LoD","5 Replicates LoD","8 Replicates LoD")
+Pval <- modelFit(get(LOD.list2[i+1]))[[5]][2]
+
+par(mar = c(5, 5, 5, 2))
+
+
+
+#jpeg(filename = "Supplemental material/LOD.short.Marker.jpg", width = 6, height = 5, units = "in", quality = 100, res = 600)
+
+plot(get(LOD.list2[i+1]),main=paste0("LoD plot for short marker"),
+     ylab="Detection Probability",xlab="Standard concentrations (copies / reaction)",
+     cex.axis = 1.3,
+     cex.lab=1.5,
+     xlim=c(0,100))
+
+points(x=DAT4[1:LODS,1],y=YS[1:LODS],pch=PNTS,col=COLS,cex=1.2)
+
+for(j in 1:LODS) {
+  lines(x=DAT4[j,3:4],y=rep(YS[j],2),col=COLS[j],lwd=2)
+  lines(x=rep(DAT4[j,3],2),y=c(YS[j]-0.02,YS[j]+0.02),lwd=2,col=COLS[j])
+  lines(x=rep(DAT4[j,4],2),y=c(YS[j]-0.02,YS[j]+0.02),lwd=2,col=COLS[j])
+}
+
+legend("bottomright", legend=LODS2,pch=PNTS,col=COLS,text.col=COLS, cex = 1, x.intersp=0.5, y.intersp=0.75, bty="n")
+
+mtext(paste0("FCT used: ",LOD.list3[i+1],"    Lack of fit test: p = ",format(Pval, digits=3)),side=3)
+ 
+#dev.off()
+
+
+
+i=2
+## Plot the LOD models for each assay:
+DAT4 <- rbind(ED(get(LOD.list2[i+1]),0.95,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-sqrt(0.05),interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^(1/3),interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.25,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.2,interval="delta",type="absolute"),
+                  ED(get(LOD.list2[i+1]),1-0.05^0.125,interval="delta",type="absolute"))
+DAT4 <- data.frame(DAT4,LoD=c("1rep.LOD","2rep.LOD","3rep.LOD","4rep.LOD",
+                                  "5rep.LOD","8rep.LOD"),
+                       Assay=rep(Targets[i],nrow(DAT4)))
+DAT4$Assay <- as.character(DAT4$Assay)
+LOD.CI <- rbind(LOD.CI,DAT4)
+par(mar = c(5, 5, 5, 2))
+LODS <- sum(!is.na(DAT4[,1]))
+COLS <- c(rgb(0.8,0.47,0.65),rgb(0,0.45,0.7),rgb(0,0,0),
+              rgb(0.84,0.37,0),rgb(0,0.62,0.45),rgb(0.90,0.62,0))
+PNTS <- c(15,16,17,18,25,3)
+YS <- c(0.95,1-sqrt(0.05),1-0.05^(1/3),1-0.05^0.25,1-0.05^0.2,1-0.05^0.125)
+LODS2 <- c("Limit of Detection","2 Replicates LoD","3 Replicates LoD",
+               "4 Replicates LoD","5 Replicates LoD","8 Replicates LoD")
+Pval <- modelFit(get(LOD.list2[i+1]))[[5]][2]
+
+#jpeg(filename = "Supplemental material/LOD.long.Marker.jpg", width = 6, height = 5, units = "in", quality = 100, res = 600)
+
+plot(get(LOD.list2[i+1]),main="LoD Plot for long marker",
+         ylab="Detection Probability",xlab="Standard concentrations (copies / reaction)",
+         cex.axis = 1.3,
+         cex.lab=1.5,
+         xlim=c(0,100))
+
+points(x=DAT4[1:LODS,1],y=YS[1:LODS],pch=PNTS,col=COLS,cex=1.2)
+for(j in 1:LODS) {
+      lines(x=DAT4[j,3:4],y=rep(YS[j],2),col=COLS[j],lwd=2)
+      lines(x=rep(DAT4[j,3],2),y=c(YS[j]-0.02,YS[j]+0.02),lwd=2,col=COLS[j])
+      lines(x=rep(DAT4[j,4],2),y=c(YS[j]-0.02,YS[j]+0.02),lwd=2,col=COLS[j])
+    }
+legend("bottomright", legend=LODS2,pch=PNTS,col=COLS,text.col=COLS, cex = 1, x.intersp=0.5, y.intersp=0.75, bty="n")
+Pval <- modelFit(get(LOD.list2[i+1]))[[5]][2]
+mtext(paste0("FCT used: ",LOD.list3[i+1],"    Lack of fit test: p = ",format(Pval, digits=3)),side=3)
+
+#dev.off()
+
+
+
+legend<-legend("bottomright",legend=LODS2,pch=PNTS,col=COLS,text.col=COLS, cex = 1)
+
+#plot(legend("bottomright",legend=LODS2,pch=PNTS,col=COLS,text.col=COLS, cex = 1))
+
+LOD.CI <- LOD.CI[,c(6,5,1,3,4,2)]
+write.csv(LOD.CI, file = "data/LOD_confint.csv", row.names = FALSE)
+
+```
+
+## Plot LOQ model for each assay
+
+```{r Plot-LOQ-models, eval = FALSE}
+
+
+## Plot the LoQ models of each assay:
+for(i in 1:length(Targets)) {
+  if(is.na(LOQ.list[i+1])==FALSE) {
+    ## Re-generate prediction data for the model:
+    newData <- data.frame(Standards = seq(1, 10000))
+    newData$Cq.CV <- predict(get(LOQ.list[i+1]), newData)
+    ## Define LOQ polygon coordinates:
+    PDAT <- data.frame(x=c(min(DAT2$Standards[DAT2$Target==Targets[i]], na.rm = TRUE),
+                           min(DAT2$Standards[DAT2$Target==Targets[i]], na.rm = TRUE),
+                           DAT3$LOQ[DAT3$Assay==Targets[i]],
+                           DAT3$LOQ[DAT3$Assay==Targets[i]]),
+                       y=c(min(c(DAT2$Cq.CV[DAT2$Target==Targets[i]],newData$Cq.CV[newData$Standards<=max(DAT2$Standards[DAT2$Target==Targets[i]])&newData$Standards>=min(DAT2$Standards[DAT2$Target==Targets[i]])]), na.rm = TRUE)*0.9,
+                           newData$Cq.CV[newData$Standards==DAT3$LOQ[DAT3$Assay==Targets[i]]],
+                           newData$Cq.CV[newData$Standards==DAT3$LOQ[DAT3$Assay==Targets[i]]],
+                           min(c(DAT2$Cq.CV[DAT2$Target==Targets[i]],newData$Cq.CV[newData$Standards<=max(DAT2$Standards[DAT2$Target==Targets[i]])&newData$Standards>=min(DAT2$Standards[DAT2$Target==Targets[i]])]), na.rm = TRUE)*0.9))
+    if(DAT3$LOQ[DAT3$Assay==Targets[i]]!=floor(DAT3$LOQ[DAT3$Assay==Targets[i]])) {
+      PDAT$y[2:3] <- LOQ.Threshold
+    }
+  }
+  
+  Decay.Plot <- ggplot(DAT2[DAT2$Target==Targets[i],], aes(x= Standards, y = Cq.CV)) +
+    geom_point(size=2) +
+    scale_x_continuous(trans = 'log10') +
+    ylab("Coefficient of variation for Cq-Values") +
+    xlab("Standard concentrations (Copies / Reaction)") +
+    geom_vline(xintercept=DAT3$LOD[DAT3$Assay==Targets[i]],color="red") +
+    annotate("text",y=max(DAT2$Cq.CV[DAT2$Target==Targets[i]], na.rm = TRUE)*0.99,
+             x=DAT3$LOD[i]*0.8,angle=90,label="LOD",color="red") +
+    theme(legend.position="none") +
+    theme(plot.title=element_text(hjust=0.5))
+  
+  if(is.na(LOQ.list[i+1])==FALSE) {
+    if(DAT3$LOQ[DAT3$Assay==Targets[i]]<=min(DAT2$Standards[DAT2$Target==Targets[i]])) {
+      PDAT$x[3:4] <- NA
+      Decay.Plot <- Decay.Plot + 
+        annotate("text",y=max(DAT2$Cq.CV[DAT2$Target==Targets[i]], na.rm = TRUE)*0.99,
+                 x=median(DAT2$Standards[DAT2$Target==Targets[i]]),
+                 label="LOQ may be outside tested range.",hjust=0)
+    }
+    Decay.Plot <- Decay.Plot + geom_polygon(data=PDAT,aes(x=x,y=y,alpha=0.5))
+    
+    if(as.character(get(LOQ.list[i+1])$call)[1]=="nls") {
+      Decay.Plot <- Decay.Plot + 
+        stat_smooth(method = "nls", formula = y ~ SSasymp(x, Asym, R0, lrc), se = FALSE) +
+        ggtitle(paste0("Exponential Decay LOQ model for: ",Targets[i]))
+    }
+    
+    if(as.character(get(LOQ.list[i+1])$call)[1]=="lm") {
+      if(grepl("poly",as.character(get(LOQ.list[i+1])$call)[2])==TRUE) {
+        B <- length(get(LOQ.list[i+1])$coefficients)-1
+        Decay.Plot <- Decay.Plot +
+          stat_smooth(method = "lm", formula = y ~ poly(x,B),se=FALSE) +
+          ggtitle(paste0(B,"-order polynomial LOQ model for: ",Targets[i]))
+      }
+      else {
+        Decay.Plot <- Decay.Plot +
+          stat_smooth(method = "lm", formula = y ~ x,se=FALSE) +
+          ggtitle(paste0("Linear LOQ model for: ",Targets[i]))
+      }
+    } 
+  }
+  
+  if(is.na(LOQ.list[i+1])==TRUE) {
+    Decay.Plot <- Decay.Plot + 
+      ggtitle(paste0("LOQ model for: ",Targets[i]," not solvable."))
+  }
+  
+  print(Decay.Plot)
+  readline(prompt="Press [Enter] for next plot.")
+  print("Calculating... Please wait.")
+}
+
+```
+
+# Read all data and metadata, link up
+
+## Krill qPCR:
+
+### Read survey data, calculate copy numbers per sample
+
+```{r calculate-copy-numbers}
+
+##Read in the data:
+qPCR.data <- read.csv("data/genetics.data.files/Krill.qPCR.survey.data.csv")
+
+#Values used for calculations from LOD/LOQ calculations:
+Intercept.R1 <- 34.1233699725295
+Slope.R1 <- -3.52709467886137
+
+Intercept.R3 <- 34.6067714355447
+Slope.R3 <- -3.58310733638021
+
+
+#y = Ct value of sample
+#Note that Intercept needs to be adjusted for each plate of origin 
+#based on the Ct values of the gblocks standard
+
+#formula: copies per sample = 10^((y-Intercept)/Slope)
+
+#concentration gblocks fragment: 100
+
+#expected Ct for gblocks fragment:
+#formula: y = (2*Slope)+Intercept
+
+expected.Ct.R1.100 <- (2*Slope.R1)+Intercept.R1
+expected.Ct.R3.100 <- (2*Slope.R3)+Intercept.R3
+
+#actual Ct for gblocks fragment per plate per marker:
+
+gblocks.R1.Pl1 <- subset(qPCR.data, Target == "F3R1" & Plate == 1 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl1 <- subset(qPCR.data, Target == "F3R3" & Plate == 1 & Sample == "gblock")$Mean.Cq
+
+gblocks.R1.Pl2 <- subset(qPCR.data, Target == "F3R1" & Plate == 2 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl2 <- subset(qPCR.data, Target == "F3R3" & Plate == 2 & Sample == "gblock")$Mean.Cq
+
+gblocks.R1.Pl3 <- subset(qPCR.data, Target == "F3R1" & Plate == 3 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl3 <- subset(qPCR.data, Target == "F3R3" & Plate == 3 & Sample == "gblock")$Mean.Cq
+
+gblocks.R1.Pl4 <- subset(qPCR.data, Target == "F3R1" & Plate == 4 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl4 <- subset(qPCR.data, Target == "F3R3" & Plate == 4 & Sample == "gblock")$Mean.Cq
+
+gblocks.R1.Pl5 <- subset(qPCR.data, Target == "F3R1" & Plate == 5 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl5 <- subset(qPCR.data, Target == "F3R3" & Plate == 5 & Sample == "gblock")$Mean.Cq
+
+gblocks.R1.Pl6 <- subset(qPCR.data, Target == "F3R1" & Plate == 6 & Sample == "gblock")$Mean.Cq
+gblocks.R3.Pl6 <- subset(qPCR.data, Target == "F3R3" & Plate == 6 & Sample == "gblock")$Mean.Cq
+
+#Correction factor for each plate based on gblocks fragment: Ct expected - Ct observed
+corr.R1.Pl1 <- expected.Ct.R1.100 - gblocks.R1.Pl1
+corr.R3.Pl1 <- expected.Ct.R3.100 - gblocks.R3.Pl1
+
+corr.R1.Pl2 <- expected.Ct.R1.100 - gblocks.R1.Pl2
+corr.R3.Pl2 <- expected.Ct.R3.100 - gblocks.R3.Pl2
+
+corr.R1.Pl3 <- expected.Ct.R1.100 - gblocks.R1.Pl3
+corr.R3.Pl3 <- expected.Ct.R3.100 - gblocks.R3.Pl3
+
+corr.R1.Pl4 <- expected.Ct.R1.100 - gblocks.R1.Pl4
+corr.R3.Pl4 <- expected.Ct.R3.100 - gblocks.R3.Pl4
+
+corr.R1.Pl5 <- expected.Ct.R1.100 - gblocks.R1.Pl5
+corr.R3.Pl5 <- expected.Ct.R3.100 - gblocks.R3.Pl5
+
+corr.R1.Pl6 <- expected.Ct.R1.100 - gblocks.R1.Pl6
+corr.R3.Pl6 <- expected.Ct.R3.100 - gblocks.R3.Pl6
+
+#New formula, per marker per plate: copies = 10^((y-Intercept+correction)/Slope)
+
+#Calculate copy number per plate
+
+qPCR.data$Copies.corrected <- NA
+
+
+#Plate 1, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 1 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 1 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl1) / Slope.R1)
+
+#Plate 1, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 1 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 1 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl1) / Slope.R3)
+
+#Plate 2, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 2 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 2 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl2) / Slope.R1)
+
+#Plate 2, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 2 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 2 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl2) / Slope.R3)
+
+#Plate 3, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 3 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 3 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl3) / Slope.R1)
+
+#Plate 3, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 3 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 3 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl3) / Slope.R3)
+
+
+#Plate 4, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 4 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 4 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl4) / Slope.R1)
+
+#Plate 4, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 4 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 4 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl4) / Slope.R3)
+
+
+#Plate 5, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl5) / Slope.R1)
+
+#Plate 5, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl5) / Slope.R3)
+
+
+#Plate 6, R1
+qPCR.data$Copies.corrected[qPCR.data$Plate == 6 & qPCR.data$Target=="F3R1"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 6 & qPCR.data$Target=="F3R1"] - Intercept.R1 + corr.R1.Pl6) / Slope.R1)
+
+#Plate 6, R3
+qPCR.data$Copies.corrected[qPCR.data$Plate == 6 & qPCR.data$Target=="F3R3"] <- 10^((qPCR.data$Mean.Cq[qPCR.data$Plate == 6 & qPCR.data$Target=="F3R3"] - Intercept.R3 + corr.R3.Pl6) / Slope.R3)
+
+
+#Check values for plate 5
+#cbind(qPCR.data$Copies.corrected[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R3"], qPCR.data$Mean.Cq[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R3"], qPCR.data$Sample[qPCR.data$Plate == 5 & qPCR.data$Target=="F3R3"])
+
+
+
+## Limit of detection
+
+#R1 (3 tech. replica): 0.134374705089103
+#R3 (3 tech. replica): 0.098559447
+
+LOD.R1 <- 0.134374705089103
+
+LOD.R3 <- 0.098559447
+
+qPCR.data$LOD <- NA
+
+qPCR.data$LOD[qPCR.data$Target == "F3R1"] <- ifelse(qPCR.data$Copies.corrected[qPCR.data$Target == "F3R1"] < LOD.R1, "fail", "pass")
+qPCR.data$LOD[qPCR.data$Target == "F3R3"] <- ifelse(qPCR.data$Copies.corrected[qPCR.data$Target == "F3R3"] < LOD.R3, "fail", "pass")
+
+#qPCR.data[qPCR.data$LOD =="fail"&!is.na(qPCR.data$LOD),]
+
+#Three samples fail LOD: 
+#074A F3R1 - only just fails, and F3R3 of same samples is positive, so retained (note though that more copies detected with long marker than short marker)
+#105A F3R3. Short marker is negative, so remove. 
+#144A F3R3.. Short merker is fine - retain
+
+#Remove 105A F3R3
+qPCR.data$Krill.positive[qPCR.data$Sample == "105A" & qPCR.data$Target == "F3R3"] <- "No"
+qPCR.data$Copies.corrected[qPCR.data$Sample == "105A" & qPCR.data$Target == "F3R3"] <- "NA"
+
+```
+
+### Calculate fragmentation state
+
+```{r calculate-fragmentation-state}
+
+dw <- read.csv("data/genetics.data.files/Data.to.fit.model.csv")
+dw$LateF <- as.factor(dw$LateF)
+
+#Fit a Binomial glm based on just the contrast of log concentrations of R3 and R1
+
+fit <- glm(LateF ~ I(L3-L1)+I((L3-L1)^2),family=binomial(),data=dw)
+summary(fit)
+
+#get the data in the right format. First, subset to only include relevant columns:
+
+qPCR.sub <- qPCR.data[,c("Sample", "Target", "Krill.positive", "Copies.corrected", "Sample.number", "Bottle.number",
+                         "Sampling.time.UTC", "Date", "Latitude", "Longitude", "Sampling.method", "Sampling.type", 
+                         "Sampling.depth", "CTD.depth", "seawater.temperature", "sea.ice", "Filter.halved", 
+                         "Filtering.time.UTC", "Storage.boxes", "Collectors", "Comments", "Time.between.filtering.and.sampling",
+                         "Time.between.decimal", "Percent.of.5.Litres", "CTD.number", "CTD.category")]
+
+#convert copy numbers into copies/sample (multiply by 100, see paper):
+qPCR.sub$Copies.corrected <- as.numeric(qPCR.sub$Copies.corrected)
+qPCR.sub$Copies.sample.1 <- qPCR.sub$Copies.corrected*100
+
+
+
+#Correct samples that contained less than five liters. 
+
+qPCR.sub$Copies.sample <- (ifelse(!is.na(qPCR.sub$Percent.of.5.Litres), qPCR.sub$Copies.sample.1/qPCR.sub$Percent.of.5.Litres, qPCR.sub$Copies.sample.1))
+
+#Set copies per sample to NA for those that have not enough positive qPCR reactions
+qPCR.sub$Copies.sample[qPCR.sub$Krill.positive=="No"] <- NA
+
+#Calculate log of copies/sample
+
+qPCR.sub$Copies.log <- log(qPCR.sub$Copies.sample)
+
+#format to wider format
+qPCR.sub$Sample <- as.factor(qPCR.sub$Sample)
+qPCR.sub$Target <- as.factor(qPCR.sub$Target)
+
+#remove standards and NTCs, as those are there in multiple copies and pivot_wider won't work with it.
+
+qPCR.sub2 <- droplevels(subset(qPCR.sub, !Sample %in% c("gblock", "NTC")))
+
+str(qPCR.sub2)
+qPCR.sub2$Target
+
+#convert to wider format, so R1 and R3 are in separate columns
+
+
+
+qPCR.for.model <- pivot_wider(qPCR.sub2, id_cols = c(Sample), names_from = Target, values_from = c(Copies.sample, Copies.log, Krill.positive))
+
+colnames(qPCR.for.model) <- c("Sample", "Cop.Corr.R1", "Cop.Corr.R3", "L1", "L3", "Krill.pos.R1", "Krill.pos.R3")
+
+#add the metadata on again: 
+metadata <- read.csv("data/genetics.data.files/eDNA-metadata.csv")
+metadata$Latitude <- as.numeric(metadata$Latitude)
+
+qPCR.for.model <- merge(qPCR.for.model, metadata, all.x = T)
+
+#write.csv(qPCR.for.model, "qPCR.for.model.csv", row.names = F)
+
+#predict likelihood of being recent/older
+
+#qPCR.for.model <- read.csv("qPCR.for.model.csv")
+
+qPCR.for.model$pr <- as.numeric(predict(fit,qPCR.for.model,type="response"))
+
+#set pr as '1' if L1 exists but L3 is NA
+qPCR.for.model$pr.2 <- ifelse(qPCR.for.model$L1 > 0 & is.na(qPCR.for.model$L3), 1, qPCR.for.model$pr)
+
+#set pr as '0.5' if L3 exists but L1 is NA
+qPCR.for.model$pr.2 <- ifelse(is.na(qPCR.for.model$L1) & qPCR.for.model$L3 > 0, 0.5, qPCR.for.model$pr.2)
+
+#set L1 as L3 if L3 exists but L1 is NA
+qPCR.for.model$L1 <- ifelse(is.na(qPCR.for.model$L1) & qPCR.for.model$L3 > 0, qPCR.for.model$L3, qPCR.for.model$L1)
+#Same for R1
+qPCR.for.model$Cop.Corr.R1 <- ifelse(is.na(qPCR.for.model$Cop.Corr.R1) & qPCR.for.model$Cop.Corr.R3 > 0, qPCR.for.model$Cop.Corr.R3, qPCR.for.model$Cop.Corr.R1)
+
+
+qPCR.for.model$class.strict <- case_when(
+      qPCR.for.model$pr.2 < 0.1 ~ "recent",
+      (qPCR.for.model$pr.2 >= 0.1 & qPCR.for.model$pr.2 <= 0.9) ~ "undetermined",
+      qPCR.for.model$pr.2 >0.9 ~ "old")
+
+#qPCR.for.model$class.loose <- case_when(
+#      qPCR.for.model$pr.2 < 0.1 ~ "recent",
+#      (qPCR.for.model$pr.2 >= 0.1 & qPCR.for.model$pr.2 <= 0.25) ~ "recentish",
+#      (qPCR.for.model$pr.2 > 0.25 & qPCR.for.model$pr.2 < 0.75) ~ "undetermined",
+#      (qPCR.for.model$pr.2 >= 0.75 & qPCR.for.model$pr.2 <= 0.9) ~ "oldish",
+#      qPCR.for.model$pr.2 >0.9 ~ "old")
+
+qPCR.for.model$model.method <- ifelse(qPCR.for.model$pr !=qPCR.for.model$pr.2 | (!is.na(qPCR.for.model$pr.2)&is.na(qPCR.for.model$pr)), "manual", "model")
+  
+  
+  
+
+#check samples wher L3 > L1
+dubious.samples <- qPCR.for.model$Sample[(qPCR.for.model$L3 > qPCR.for.model$L1)& !is.na(qPCR.for.model$pr)]
+
+#check in dataset
+qPCR.sub[qPCR.sub$Sample %in% dubious.samples,]
+
+#check in model dataset
+qPCR.for.model[qPCR.for.model$Sample %in% dubious.samples,]
+
+#All dubious samples are classified as "recent", so no further action needs to be taken.
+
+
+#Check samples where L3 >0 but L1 = NA
+dubious.samples.2 <- qPCR.for.model$Sample[(qPCR.for.model$L3 > 0 & is.na(qPCR.for.model$L1) &!is.na(qPCR.for.model$L3))]
+
+#check in dataset
+qPCR.sub[qPCR.sub$Sample %in% dubious.samples.2,]
+
+#check in model dataset
+qPCR.for.model[qPCR.for.model$Sample %in% dubious.samples.2,]
+
+#How many cases of only one technical replica for Short marker?
+Short.1techrepl <- qPCR.sub[qPCR.sub$Target == "F3R1" & qPCR.sub$Krill.positive == "No" & qPCR.sub$Copies.corrected > 0 & !is.na(qPCR.sub$Copies.corrected), ]
+
+#How many cases of only one technical replica for Long marker?
+Long.1techrepl <- qPCR.sub[qPCR.sub$Target == "F3R3" & qPCR.sub$Krill.positive == "No" & qPCR.sub$Copies.corrected > 0 & !is.na(qPCR.sub$Copies.corrected), ]
+
+
+```
+
+### Check negative PCR controls
+
+```{r check-negative-PCR-controls}
+#read data again to avoid working with summarised data, i.e. check every last negative control qPCR
+qPCR.data.for.negatives <- read.csv("data/genetics.data.files/TEMPO-krill16S-qPCR-negative.controls.csv")
+
+NTCs <- qPCR.data.for.negatives[qPCR.data.for.negatives$Sample == "NTC",]
+NTCs$Cq
+NTCs$Amp.Status
+
+
+```
+None of the 36 NTCs have amplified. Two have 'Inconclusive' amplification status, but they're not real amplifications.
+
+### Negative Extraction controls
+
+```{r check-ECs}
+ECs <- subset(qPCR.data.for.negatives, grepl('EC', Sample))
+
+ECs$Cq
+ECs$Amp.Status
+
+
+```
+
+None of the 54 ECs have amplified. Two have 'Inconclusive' amplification status, but they're not real amplifications.
+
+### Negative field controls
+
+```{r check-field-controls}
+MilliQ.Samples <- metadata$Sample[metadata$Sampling.type == "MilliQ"]
+
+FCs <- subset(qPCR.data.for.negatives, Sample %in% MilliQ.Samples)
+length(FCs$Cq) #66
+Potential.amps <- subset(FCs, Amp.Status !="No Amp")
+  
+  cbind(Potential.amps$Sample, Potential.amps$Target, Potential.amps$Cq,Potential.amps$Amp.Status)
+
+
+```
+Of the 66 Field control qPCRs (representing 11 field controls), 58 were negative, 7 were 'inconclusive' (also negative), and one amplified. This was:  
+060A with R1, Ct 36.0  
+
+
+This sample would be classified as 'Krill negative', as only one of three technical replica amplified - but traces of krill eDNA may still be present in this sample.
+
+
+## Metabarcoding
+
+### Read metabarcoding survey data, merge with qPCR
+
+```{r read-merge-metabarcoding-survey}
+meta.krill.t <- read.csv("data/genetics.data.files/Krill.metabarcoding.survey.data.csv")
+
+meta.qPCR <- merge(qPCR.for.model, meta.krill.t,  by ="Sample", all = T)
+
+
+#check negative metabarcoding field data:
+milliQ <- subset(meta.qPCR, Sampling.type =="MilliQ")
+#no krill detected in any field samples
+```
+
+
+## Visual detections
+
+### Read in visual data
+
+```{r read-visuals}
+visuals <- read.csv("data/visual.data.files/eDNA_comb_visual.csv")
+```
+
+### Merge with eDNA data
+```{r merge-visual-eDNA}
+
+meta.qPCR.visual <- merge(meta.qPCR, visuals, by = "CTD.category", all = T)
+
+meta.qPCR.visual[, colnames(meta.qPCR.visual) %in% c("Sample", "Euphausia.superba", "Sampling.depth", "L1", "L3", "class.loose", "count2.vis")]
+
+str(meta.qPCR.visual)
+
+meta.species <- c("Euphausia.crystallorophias", "Euphausia.frigida", "Euphausia.superba", 
+                  "Thysanoessa.gregaria", "Thysanoessa.macrura")
+
+for(i in 1:length(meta.species)){
+  meta.qPCR.visual[,meta.species[i]]<- as.numeric(meta.qPCR.visual[,meta.species[i]])
+}
+
+meta.qPCR.visual$Total <- as.numeric(meta.qPCR.visual$Total )
+
+```
+
+
+## Transform data
+
+### Metabarcoding - curate
+
+```{r curate-metabarcoding}
+## presence is counted if read numbers > 100
+
+meta.qPCR.visual$E.crystallorophias.presence <- ifelse(meta.qPCR.visual$`Euphausia.crystallorophias` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.crystallorophias`), 1, 0)
+meta.qPCR.visual$E.frigida.presence <- ifelse(meta.qPCR.visual$`Euphausia.frigida` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.frigida`), 1, 0)
+meta.qPCR.visual$E.superba.presence <- ifelse(meta.qPCR.visual$`Euphausia.superba` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.superba`), 1, 0)
+meta.qPCR.visual$T.gregaria.presence <- ifelse(meta.qPCR.visual$`Thysanoessa.gregaria` > 100 & ! is.na(meta.qPCR.visual$`Thysanoessa.gregaria`), 1, 0)
+meta.qPCR.visual$T.macrura.presence <- ifelse(meta.qPCR.visual$`Thysanoessa.macrura` > 100 & ! is.na(meta.qPCR.visual$`Thysanoessa.macrura`), 1, 0)
+
+
+
+
+presence.names <- c("E.crystallorophias.presence","E.frigida.presence", "E.superba.presence", "T.gregaria.presence",
+                    "T.macrura.presence")
+
+meta.qPCR.visual$E.crystal.pres.prop <- meta.qPCR.visual$E.crystallorophias.presence/rowSums(meta.qPCR.visual[,presence.names])
+meta.qPCR.visual$E.frig.pres.prop <- meta.qPCR.visual$E.frigida.presence/rowSums(meta.qPCR.visual[,presence.names])
+meta.qPCR.visual$E.super.pres.prop <- meta.qPCR.visual$E.superba.presence/rowSums(meta.qPCR.visual[,presence.names])
+meta.qPCR.visual$T.greg.pres.prop <- meta.qPCR.visual$T.gregaria.presence/rowSums(meta.qPCR.visual[,presence.names])
+meta.qPCR.visual$T.mac.pres.prop <- meta.qPCR.visual$T.macrura.presence/rowSums(meta.qPCR.visual[,presence.names])
+
+pres.prop.names <- c("E.crystal.pres.prop","E.frig.pres.prop","E.super.pres.prop","T.greg.pres.prop","T.mac.pres.prop")
+
+
+
+meta.qPCR.visual$krill.detection <- rowSums(meta.qPCR.visual[,pres.prop.names])
+meta.qPCR.visual$krill.detection[is.na(meta.qPCR.visual$krill.detection)] <- 0
+  
+meta.qPCR.visual$E.crystal.read.prop <- ifelse(meta.qPCR.visual$`Euphausia.crystallorophias` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.crystallorophias`), meta.qPCR.visual$`Euphausia.crystallorophias`/rowSums(meta.qPCR.visual[,meta.species], na.rm = T), 0)
+
+meta.qPCR.visual$E.frig.read.prop <- ifelse(meta.qPCR.visual$`Euphausia.frigida` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.frigida`), meta.qPCR.visual$`Euphausia.frigida`/rowSums(meta.qPCR.visual[,meta.species]), 0)
+
+meta.qPCR.visual$E.super.read.prop <- ifelse(meta.qPCR.visual$`Euphausia.superba` > 100 & ! is.na(meta.qPCR.visual$`Euphausia.superba`), meta.qPCR.visual$`Euphausia.superba`/rowSums(meta.qPCR.visual[,meta.species]), 0)
+
+meta.qPCR.visual$T.greg.read.prop <- ifelse(meta.qPCR.visual$`Thysanoessa.gregaria` > 100 & ! is.na(meta.qPCR.visual$`Thysanoessa.gregaria`), meta.qPCR.visual$`Thysanoessa.gregaria`/rowSums(meta.qPCR.visual[,meta.species]), 0)
+
+meta.qPCR.visual$T.mac.read.prop <- ifelse(meta.qPCR.visual$`Thysanoessa.macrura` > 100 & ! is.na(meta.qPCR.visual$`Thysanoessa.macrura`), meta.qPCR.visual$`Thysanoessa.macrura`/rowSums(meta.qPCR.visual[,meta.species]), 0)
+
+
+read.prop.names <- c("E.crystal.read.prop","E.frig.read.prop","E.super.read.prop", "T.greg.read.prop","T.mac.read.prop")
+
+rowSums(meta.qPCR.visual[,read.prop.names])
+
+meta.qPCR.visual <- subset(meta.qPCR.visual, Sampling.type != "MilliQ")
+
+```
+
+### Metabarcoding - estimate quantity
+
+
+```{r read-Ct-values}
+
+Cts <- read.csv("data/genetics.data.files/Metabarcoding.Ct.values.krill.TEMPO.csv")
+
+eDNA.Ct <- merge(meta.qPCR.visual, Cts[,c("Sample", "Average.Cq", 'Diff.Cq')], by = "Sample", all = T)
+
+## Add DNA dilutions (DNA diluted for metabarcoding)
+
+```
+
+
+```{r add-dna-dilutions}
+
+DNA.dilutions <- read.csv("data/genetics.data.files/DNA-dilutions-metabarcoding-krill-TEMPO.csv")
+
+eDNA.quant <- merge(eDNA.Ct, DNA.dilutions[,c("Sample", "Dilution.factor")], by = "Sample", all = T)
+
+
+
+#Which samples have metabarcoding data but no Ct value?
+no.ct <- subset(eDNA.quant, Total >0 & is.na(Average.Cq))
+samples.no.ct <- no.ct$Sample
+
+#if there's no Ct value but still metabarcoding data, set Ct to 40 (maximum)
+eDNA.quant$Average.Cq[eDNA.quant$Sample %in% samples.no.ct] <- 40
+
+
+```
+
+```{r calculate-metabarcoding-copy-numbers-intercept}
+#Calculate the intercept of the metabarcoding assay based on a sample of known copy number:
+#has to be a sample where only Antarctic krill was detected
+#has to be an undiluted sample
+
+undiluted.samples <- subset(eDNA.quant, Dilution.factor == 1)
+undiluted.samples[,c("Sample", "Euphausia.superba", "L1", "Average.Cq", "Diff.Cq", "Dilution.factor")]
+
+#Suitable for calibration:
+#058A
+
+###Sample 058A
+
+Sample.058A <- subset(eDNA.quant, Sample == "058A")
+copy.number.E.sup <- exp(Sample.058A$L1)/100
+proportion.E.sup.reads <- Sample.058A$`Euphausia.superba`/Sample.058A$Total
+total.copy.number <- copy.number.E.sup/proportion.E.sup.reads
+Cq.value <- Sample.058A$Average.Cq
+
+#Formula: copies = 10^((Cq-Intercept)/Slope)
+Slope = -3.32 #(assuming perfect primers)
+
+
+#Intercept = Ct-(log(copies)*slope)
+Intercept <- Cq.value - (log10(total.copy.number)*Slope) #39.58508
+
+Sample.058A$Meta.copies.total <- 10^((Cq.value-Intercept)/Slope)
+Sample.058A$Meta.copies.E.sup <- Sample.058A$Meta.copies.total * Sample.058A$`Euphausia.superba`/Sample.058A$Total
+Sample.058A$Meta.copies.E.sup.Sample <- Sample.058A$Meta.copies.E.sup*100
+Sample.058A$Meta.L1 <- log(Sample.058A$Meta.copies.E.sup.Sample)
+
+```
+
+### Calculate metabarcoding numbers
+
+```{r calculate-metabarcoding-copy-numbers-intercept-2}
+#Total copies per sample, taking dilutions and filtered volume into account 
+
+eDNA.quant$Meta.copies <- (10^((eDNA.quant$Average.Cq-Intercept)/Slope)*100)/eDNA.quant$Dilution.factor/eDNA.quant$Percent.of.5.Litres
+
+#Copies per species per sample
+eDNA.quant$Meta.E.sup.copies <- ifelse(eDNA.quant$`Euphausia.superba` > 99 & !is.na(eDNA.quant$`Euphausia.superba`), eDNA.quant$Meta.copies * eDNA.quant$`Euphausia.superba`/eDNA.quant$Total, 0)
+eDNA.quant$Meta.E.cry.copies <- ifelse(eDNA.quant$`Euphausia.crystallorophias` > 99 & !is.na(eDNA.quant$`Euphausia.crystallorophias`), eDNA.quant$Meta.copies * eDNA.quant$`Euphausia.crystallorophias`/eDNA.quant$Total, 0)
+eDNA.quant$Meta.E.fri.copies <- ifelse(eDNA.quant$`Euphausia.frigida` > 99 & !is.na(eDNA.quant$`Euphausia.frigida`), eDNA.quant$Meta.copies * eDNA.quant$`Euphausia.frigida`/eDNA.quant$Total, 0)
+eDNA.quant$Meta.T.gre.copies <- ifelse(eDNA.quant$`Thysanoessa.gregaria` > 99 & !is.na(eDNA.quant$`Thysanoessa.gregaria`), eDNA.quant$Meta.copies * eDNA.quant$`Thysanoessa.gregaria`/eDNA.quant$Total, 0)
+eDNA.quant$Meta.T.mac.copies <- ifelse(eDNA.quant$`Thysanoessa.macrura` > 99 & !is.na(eDNA.quant$`Thysanoessa.macrura`), eDNA.quant$Meta.copies * eDNA.quant$`Thysanoessa.macrura`/eDNA.quant$Total, 0)
+
+eDNA.quant$Meta.Euphausiids.copies <- rowSums(eDNA.quant[,c("Meta.E.sup.copies",
+                                                    "Meta.E.cry.copies",
+                                                    "Meta.E.fri.copies",
+                                                    "Meta.T.gre.copies",
+                                                    "Meta.T.mac.copies")])
+
+
+
+
+
+#L1 per species
+eDNA.quant$Meta.E.sup.L1 <- log(eDNA.quant$Meta.E.sup.copies)
+eDNA.quant$Meta.E.cry.L1 <- log(eDNA.quant$Meta.E.cry.copies)
+eDNA.quant$Meta.E.fri.L1 <- log(eDNA.quant$Meta.E.fri.copies)
+eDNA.quant$Meta.T.gre.L1 <- log(eDNA.quant$Meta.T.gre.copies)
+eDNA.quant$Meta.T.mac.L1 <- log(eDNA.quant$Meta.T.mac.copies)
+eDNA.quant$Meta.Euphausiids.L1 <- log(eDNA.quant$Meta.Euphausiids.copies)
+
+#Set -Inf values to NA
+L1.cols <- c("Meta.E.sup.L1", "Meta.E.cry.L1", "Meta.E.fri.L1", "Meta.T.gre.L1", "Meta.T.mac.L1", "Meta.Euphausiids.L1")
+eDNA.quant[,colnames(eDNA.quant) %in% (L1.cols)][eDNA.quant[,colnames(eDNA.quant) %in% (L1.cols)] == -Inf] <- NA
+
+```
+
+
+
+
+## Acoustic
+
+### Read Acoustic data, modify
+
+```{r read-acoustic-data}
+eDNA <- eDNA.quant
+eDNA <- eDNA[!is.na(eDNA$Krill.pos.R1),]
+
+## Martin's acoustics analysis
+eDNA_filt <- readRDS("data/acoustic.data.files/TEMPO_surface_eDNA_stn.rds")
+## this was based on an older version of the eDNA data, so merge the acoustic-specific info from this with the newer eDNA data
+ed0 <- eDNA_filt
+eDNA_filt <- eDNA_filt[, c("Sample", setdiff(names(eDNA_filt), names(eDNA)))] %>% left_join(eDNA, by = "Sample")
+echo_intervals <- readRDS("data/acoustic.data.files/TEMPO_krill_density_for_biomass.rds")
+echo_intervals$date_time <- lubridate::ymd_hms(paste(echo_intervals$Ping_date, echo_intervals$Ping_time))
+
+## transect start and end times
+transect_start_end <- readRDS("data/acoustic.data.files/tempo_transect_times.rds")
+## helper function
+transect_from_datetime <- function(dt) {
+    out <- rep(NA_integer_, length(dt))
+    for (i in seq_len(nrow(transect_start_end))) {
+        out[which(dt >= transect_start_end$start_time_utc[i] & dt <= transect_start_end$end_time_utc[i])] <- transect_start_end$transect[i]
+    }
+    out
+}
+
+swarms <- readRDS("data/acoustic.data.files/swarms.rds")
+swarms$biomass <- 1e-3 * swarms$vol.den.gm3 * swarms$Length* pi*(swarms$Height_mean/2)**2 #kg
+
+
+eDNA <- dplyr::mutate(eDNA, 
+               class.strict = case_when(is.na(.data$class.strict) & is.na(.data$L1) & is.na(.data$L3) ~ "eDNA no krill",
+                                        is.na(.data$L1) & !is.na(.data$L3) ~ "undetermined", ## TODO how to handle these? could be "recent"?
+                                        TRUE ~ .data$class.strict),
+               eDNA_pres = if_else(.data$class.strict == "eDNA no krill", "eDNA absent", "eDNA present"),
+               E.superba.presence = .data$E.superba.presence > 0,
+               metag_pres = if_else(.data$E.superba.presence, "metagenomics E.superba present", "metagenomics E.superba absent"))
+
+
+eDNA$sample_date <- lubridate::dmy_hm(paste(eDNA$Date, eDNA$Sampling.time.UTC))
+eDNA$transect <- transect_from_datetime(eDNA$sample_date)
+eDNA_filt$sample_date <- lubridate::dmy_hm(paste(eDNA_filt$Date, eDNA_filt$Sampling.time.UTC))
+eDNA_filt <- eDNA_filt %>% dplyr::mutate(class.strict = if_else(is.na(.data$class.strict), "eDNA no krill", .data$class.strict),
+                                  eDNA_pres = if_else(.data$class.strict == "eDNA no krill", "eDNA absent", "eDNA present"))
+
+
+## underway
+ux <- data.table::fread("data/acoustic.data.files/in2021_v01uwy1min.csv", data.table = FALSE)
+ux <- ux %>% dplyr::rename(longitude = "longitude(degree_east)", latitude = "latitude(degree_north)") %>%
+    dplyr::mutate(date_time = lubridate::dmy_hms(paste(.data$date, .data$time)))
+ux$transect <- transect_from_datetime(ux$date_time)
+## depth
+if (file.exists("data/acoustic.data.files/GEBCO_2021.tif")) {
+    ## this is large, so extract and save
+    bx <- terra::rast("data/GEBCO_2021.tif")
+    ux$depth <- -terra::extract(bx, ux[, c("longitude", "latitude")])$GEBCO_2021
+    eDNA$water_depth <- -terra::extract(bx, eDNA[, c("Longitude", "Latitude")])$GEBCO_2021
+    saveRDS(ux[, c("date_time", "depth")], "data/acoustic.data.files/ux_bathy.rds")
+    saveRDS(eDNA[, c("sample_date", "water_depth")], "data/acoustic.data.files/eDNA_bathy.rds")
+} else {
+    ux <- left_join(ux, readRDS("data/acoustic.data.files/ux_bathy.rds"), by = "date_time")
+    eDNA <- left_join(eDNA, readRDS("data/acoustic.data.files/eDNA_bathy.rds"), by = "sample_date")
+}
+
+
+## extract underway for eDNA data.frame
+temp <- rep(NA_integer_, nrow(eDNA))
+for (i in seq_len(nrow(eDNA))) {
+    this <- abs(ux$date_time - eDNA$sample_date[i])
+    if (min(as.numeric(this)) > 60) stop()
+    temp[i] <- which.min(this)
+}
+ux_eDNA <- ux[temp, ] ## underway for eDNA
+
+temp <- rep(NA_integer_, nrow(eDNA_filt))
+for (i in seq_len(nrow(eDNA_filt))) {
+    this <- abs(ux$date_time - eDNA_filt$sample_date[i])
+    if (min(as.numeric(this)) > 60) stop()
+    temp[i] <- which.min(this)
+}
+ux_eDNA_filt <- ux[temp, ] ## underway for eDNA_filt
+
+temp <- rep(NA_integer_, nrow(swarms))
+for (i in seq_len(nrow(swarms))) {
+    this <- abs(ux$date_time - swarms$timeStamp[i])
+    if (min(as.numeric(this)) > 60) stop()
+    temp[i] <- which.min(this)
+}
+ux_swarms <- ux[temp, ] ## underway for eDNA_filt
+
+## add normalized time of day
+
+## function to convert the sampling time to a normalized time of day, given the output of daylength
+## normalized time of day is 0 for midnight, 0.5 for sunrise, 1.0 for noon, 1.5 for sunset, 2.0 for midnight
+stime_to_ntod <- function(lat, lon, sample_dt) {
+    if (is.na(lat) || is.na(lon) || is.na(sample_dt)) return(NA_real_)
+    sampling_date <- as.Date(sample_dt) ## date
+    sampling_time <- lubridate::hour(sample_dt) ## UTC hour 0-24
+    ref_ntod <- c(0, 0.5, 1, 1.5) ## we use 0 for midnight, 0.5 for sunrise, 1 for noon, 1.5 for sunset, 2 (same as 0) is midnight
+    ## get sunrise, sunset time
+    if (FALSE) {
+        ## these seem wrong
+        this_dl <- suppressWarnings(daylength(lat, lon, JD(sampling_date), tmz = 0)) ## sunrise sunset daylength
+        ref_dl <- c((this_dl[1]+this_dl[2])/2-12, this_dl[1], (this_dl[1]+this_dl[2])/2, this_dl[2]) ## midnight sunrise noon sunset
+    } else {
+        ## use suncalc instead, noting that it's horribly slow
+        this_dl <- suncalc::getSunlightTimes(sampling_date, lat, lon)[1, 6:7] ## sunrise sunset
+        this_dl <- (unlist(this_dl) %% (24 * 3600)) / 3600
+        if (this_dl[1] > this_dl[2]) this_dl[1] <- this_dl[1] - 24
+        ref_dl <- c((this_dl[1] + this_dl[2]) / 2 - 12, this_dl[1], (this_dl[1] + this_dl[2]) / 2, this_dl[2]) ## midnight sunrise noon sunset
+    }
+    ## the sunrise/sunset times in this_dl can be outside the range 0-24 (because e.g. sunrise for date X might have happened on X-1 if our time zone tmz is offset from our longitude, which ours is)
+    ## so just repeat the times +/- 24 hours so we are sure that our sunrise/set times bracket our actual sampling time
+    ## and map our sampling_time to the 0-2 scale given by the sun event times, using lifar interpolation
+    out <- if (!any(is.na(ref_dl))) approx(c(ref_dl - 24, ref_dl, ref_dl+24), c(ref_ntod-2, ref_ntod, ref_ntod+2), sampling_time)$y else NA_real_
+    out <- out %% 2 ## back to the 0-2 range
+    if (is.na(out)) 3 else out ## NA's are too far south, 24-hour light
+}
+
+## add the normalized time of day to our various working dataframes
+eDNA$ntod.prev <- sapply(seq_len(nrow(eDNA)), function(z) stime_to_ntod(eDNA$Latitude[z], eDNA$Longitude[z], eDNA$sample_date[z]))
+
+eDNA_filt$ntod <- sapply(seq_len(nrow(eDNA_filt)), function(z) stime_to_ntod(eDNA_filt$Latitude[z], eDNA_filt$Longitude[z], eDNA_filt$sample_date[z]))
+swarms$ntod <- sapply(seq_len(nrow(swarms)), function(z) stime_to_ntod(swarms$Lat_M[z], swarms$Lon_M[z], swarms$timeStamp[z]))
+echo_intervals$ntod <- sapply(seq_len(nrow(echo_intervals)), function(z) stime_to_ntod(echo_intervals$Latitude[z], echo_intervals$Longitude[z], echo_intervals$date_time[z]))
+ux$ntod <- sapply(seq_len(nrow(ux)), function(z) stime_to_ntod(ux$latitude[z], ux$longitude[z], ux$date_time[z]))
+
+## helper function to identify "day" periods in that
+is_day <- function(ntod) ntod > 2.5 | (ntod >= 0.5 & ntod < 1.5)
+
+## rough checks
+## plot(eDNA$ntod, ux_eDNA$`stbdPAR(uE/m^2/s)`)
+## ggplot(echo_intervals %>% dplyr::filter(Center_of_mass > -1e10), aes(ntod, Center_of_mass, size = areal_biomassden_gWWm2)) + geom_point() + theme_bw() + scale_y_reverse()
+
+## ADCP current data
+nc <- nc_open("data/acoustic.data.files/in2021_v01_os75nb.nc")
+##nc <- nc_open("data/in2021_v01_os150nb.nc")
+## depths only to ~500m max
+u <- ncvar_get(nc, "u")
+v <- ncvar_get(nc, "v")
+vel <- sqrt(u^2 + v^2)
+d <- ncvar_get(nc, "depth")
+t <- ncvar_get(nc, "time")
+t <- as.POSIXct(as.Date("2021-01-01")) + t * 24 * 600
+lon <- ncvar_get(nc, "lon")
+lat <- ncvar_get(nc, "lat")
+ctd_vel <- sapply(seq_len(nrow(eDNA)), function(i) {
+    ## match on lon, lat
+    ##vel[1, which.min(sqrt((lon - eDNA$Longitude[i])^2 + (lat - eDNA$Latitude[i])^2))]
+    ## match on time
+    vel[1, which.min(abs(as.numeric(t - eDNA$sample_date[i])))]
+})
+nc_close(nc)
+
+eDNA$curr_v <- ctd_vel
+```
+
+## Trawl data
+
+### RMT 8
+
+```{r add-trawl-data-RMT8}
+
+## trawl data RMT 8
+tx <- read.csv("data/trawl.data.files/Digitised trawl log TEMPO.csv") %>%
+    dplyr::mutate(net_close_lat_dec = if_else(.data$net_close_lat_dec == 0, NA_real_, .data$net_close_lat_dec),
+           net_close_lon_dec = if_else(.data$net_close_lon_dec == 0, NA_real_, .data$net_close_lon_dec))
+tx <- tx[tx$trawlno != "T16", ]
+tx$longitude <- rowMeans(tx[, c("net_open_lon_dec", "net_close_lon_dec")], na.rm = TRUE)
+tx$latitude <- rowMeans(tx[, c("net_open_lat_dec", "net_close_lat_dec")], na.rm = TRUE)
+tx$open_date_time <- as.numeric(lubridate::ymd_hms(paste(tx$net_open_date_utc_YYYYMMDD, tx$net_open_time_utc), truncated = 1))
+tx$close_date_time <- as.numeric(lubridate::ymd_hms(paste(tx$net_close_date_utc, tx$net_close_time_utc), truncated = 1))
+tx$date_time <- as.POSIXct(rowMeans(tx[, c("open_date_time", "close_date_time")], na.rm = TRUE), origin = "1970-01-01")
+tx$transect <- transect_from_datetime(tx$date_time)
+#colnames(tx)[1] <- "Site"
+
+```
+
+### RMT 1
+
+```{r add-trawl-data-RMT1}
+rmt1 <- read.csv("data/trawl.data.files/Aggregated abundances krill.csv")
+colnames(rmt1)[1] <- "trawlno"
+
+all.trawl <- merge(tx, rmt1, by = "trawlno", all = T)
+
+
+all.trawl$net_open_lat_dec
+
+```
+
+### Match trawl locations to CTDs
+
+```{r match-trawl-locations}
+tx.coords <- subset(all.trawl, select = c("trawlno", "net_open_lat_dec", "net_open_lon_dec"))
+colnames(tx.coords) <- c("Sample", "Latitude", "Longitude")
+
+tx.coords.conv <- st_as_sf(tx.coords, coords = c("Longitude", "Latitude"), crs = 4326)
+
+eDNA.coords <- subset(eDNA, CTD.depth == "top", select = c("Sample", "Latitude", "Longitude"))
+eDNA.coords.conv <- st_as_sf(eDNA.coords, coords = c("Longitude", "Latitude"), crs = 4326)
+
+
+distances <- st_distance(tx.coords.conv, eDNA.coords.conv)
+
+distance_km <- set_units(distances, km)
+
+dim(distance_km)
+colnames(distance_km) <- eDNA.coords$Sample
+rownames(distance_km) <- tx.coords$Sample
+
+pos <- apply(distance_km, 1, which.min)
+dist <- apply(distance_km, 1, min, na.rm = TRUE)
+
+# add the distance and get the name of the city
+all.trawl$nearest.CTD <- eDNA.coords$Sample[pos]
+all.trawl$distance <- dist
+
+#cbind(all.trawl$trawlno, as.character(all.trawl$nearest.CTD))
+
+all.trawl <- merge(all.trawl, eDNA[,colnames(eDNA) %in% c("Sample", "Sampling.type")], by.x = "nearest.CTD", by.y = "Sample", all.x =T)
+
+all.trawl$distance <- ifelse(all.trawl$distance > 2.794, NA, all.trawl$distance)
+all.trawl$nearest.CTD <- ifelse(all.trawl$distance > 2.794, NA, as.character(all.trawl$nearest.CTD))
+all.trawl$Sampling.type <- ifelse(all.trawl$distance > 2.794, NA, as.character(all.trawl$Sampling.type))
+
+##Find remaining duplicated nearest eDNA samples (two trawls in the vicinity of < 7 km)
+
+duplicated.samples <- subset(all.trawl,duplicated(nearest.CTD) & !is.na(nearest.CTD))$nearest.CTD
+#tx[tx$nearest.CTD %in% duplicated.samples,colnames(tx) %in% c("nearest.CTD", "trawlno", "distance")]
+
+
+##remove duplicate matches that are further away manually.
+all.trawl$distance[all.trawl$trawlno %in% c("T01")] <- NA
+all.trawl$trawlno[]
+all.trawl$nearest.CTD[all.trawl$trawlno %in% c("T01", "T12", "T14", "T15")] <- NA
+all.trawl$Sampling.type[all.trawl$trawlno %in% c("T01", "T12", "T14", "T15")] <- NA
+
+colnames(all.trawl)[1] <- "nearest.eDNA.sample"
+colnames(all.trawl) <- paste(colnames(all.trawl), ".tr", sep="")
+
+```
+
+### Add trawling data to eDNA data
+
+```{r add-trawling-to-eDNA}
+
+eDNA <- merge(eDNA, all.trawl, by.x = "Sample", by.y = "nearest.eDNA.sample.tr", all = TRUE)
+
+write.csv(eDNA, "data/krill.eDNA.data.for.figures.csv", row.names = F)
+```
+
+

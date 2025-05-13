@@ -1,0 +1,54 @@
+Analysis started: Tue Sep 24 12:52:18 2024
+
+
+These standards not included in gblockssmall standard curve regression for copy estimate calculations, because they detected below 50%: 0.0625, 0
+
+
+These standards not included in gblockslarge standard curve regression for copy estimate calculations, because they detected below 50%: 0.0625, 0
+
+
+Data Summary:
+"Standards"	"Target"	"Reps"	"Detects"	"Cq.mean"	"Cq.sd"	"Copy.CV"	"Cq.CV"	"Rate"
+100	"gblockssmall"	12	12	27.0175242941667	0.219511484052444	0.138520842523441	0.153038647510345	1
+10	"gblockssmall"	12	12	30.5150969666667	0.195747591734946	0.132314797770516	0.136308754464351	1
+2	"gblockssmall"	12	12	33.040013265	0.642058663641442	0.446559180785281	0.468014441652803	1
+1	"gblockssmall"	12	12	34.2796236566667	0.815568910635828	0.470316048743318	0.613630223446511	1
+0.5	"gblockssmall"	12	11	35.69810856	1.30666731119458	0.692112639270431	1.12748238995067	0.916666666666667
+0.25	"gblockssmall"	12	11	36.5549531863636	1.13032176810344	0.66834728108139	0.920604167119845	0.916666666666667
+0.125	"gblockssmall"	12	7	36.2442415471429	0.889044905785969	0.611487318331115	0.679646781849188	0.583333333333333
+0.0625	"gblockssmall"	10	2	37.130427975	0.0699664411603834	0.0456601548933063	0.0485255712136772	0.2
+0	"gblockssmall"	2	0	NA	NA	NA	NA	0
+100	"gblockslarge"	11	11	27.5802561127273	0.206765791848577	0.131967212649515	0.14405824175208	1
+10	"gblockslarge"	11	11	30.9691754081818	0.162975270081973	0.104141788557652	0.11332720624029	1
+2	"gblockslarge"	12	12	33.6125724216667	0.37506355407408	0.244905186218566	0.264429422640476	1
+1	"gblockslarge"	12	12	34.2828598383333	0.38494007863577	0.242427549168247	0.271640253973586	1
+0.5	"gblockslarge"	12	12	35.734412475	1.06411303821574	0.578132484919145	0.850261193645661	1
+0.25	"gblockslarge"	12	11	36.9301264827273	0.911479173284076	0.5523223580625	0.700405981977175	0.916666666666667
+0.125	"gblockslarge"	12	10	38.301366255	0.846090831205777	0.473525677952056	0.640699988321049	0.833333333333333
+0.0625	"gblockslarge"	10	2	37.55432051	0.655896708021595	0.409441744308567	0.479168776992766	0.2
+0	"gblockslarge"	2	0	NA	NA	NA	NA	0
+
+
+For gblockssmall, the lowest standard with 95% or greater detection is: 1 copies/reaction.
+
+
+
+For gblockslarge, the lowest standard with 95% or greater detection is: 0.5 copies/reaction.
+
+Assay summary:
+
+R.squared: The R-squared value of linear regression of all standards Cq-values vs log10 of the starting quantities.
+Slope: The slope of the linear regression.
+Intercept: The y-intercept of the linear regression.
+
+Low.95: The lowest standard with at least 95% positive detection.
+LOD: The 95% limit of detection as determined by probit modeling.
+LOQ: The limit of quantification as determined by decay modeling, using the user-selected CV threshold of: 0.35
+
+rep2.LOD: The effective limit of detection if analyzing in 2 replicates.
+rep3.LOD: The effective limit of detection if analyzing in 3 replicates.
+rep4.LOD: The effective limit of detection if analyzing in 4 replicates.
+rep5.LOD: The effective limit of detection if analyzing in 5 replicates.
+rep8.LOD: The effective limit of detection if analyzing in 8 replicates.
+
+

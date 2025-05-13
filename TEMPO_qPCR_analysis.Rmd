@@ -1,0 +1,1763 @@
+---
+title: "TEMPO qPCR krill - Analysis"
+author: "Leonie Suter, Ben Raymond, Martin Cox, Simon Wotherspoon"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    warning: no
+  word_document:
+    toc: yes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+save_figs <- FALSE ## change to TRUE to save each fig as png file
+
+```
+
+```{r read-libraries}
+library(SOmap) ## install via remotes::install_github("AustralianAntarcticDivision/SOmap") if needed
+library(ggplot2)
+library(tidyr)
+library(orsifronts)
+library(dplyr)
+library(drc)
+library(stringr)
+library(ggnewscale)
+library(suncalc)
+library(ncdf4)
+library(sf)
+library(units)
+library(ggrepel)
+library(cowplot)
+library(scatterpie)
+library(geosphere)
+library(PieGlyph)
+library(eulerr)
+library(visreg)
+library(mgcv)
+library(colorspace)
+library(emmeans)
+requireNamespace("gratia")
+
+```
+
+# Figure 1: overview map
+
+## Overview inset
+
+```{r overview-inset}
+ovw.coord <- data.frame(Latitude = c(-60.1, -60, -60, -60), Longitude = c(-112, -22, 68, 158))
+
+overview <- SOmap_auto(x = ovw.coord$Longitude, y = ovw.coord$Latitude, gratlat = c(-80, -70, -60, -50), graticules = TRUE,  input_points = FALSE, input_lines = FALSE)
+myoverview <- SOgg(overview)
+my_overview <- plot(myoverview)
+
+rectangle.coord <- data.frame(Latitude = c(-60.5, -60.5, -68.2, -68.2, -60.5), Longitude = c(55, 81, 85.5, 50.5, 55))
+rectangle.coord[c("Long.proj", "Lat.proj")] <- SOproj(cbind(rectangle.coord$Longitude, rectangle.coord$Latitude),  target = SOcrs())
+
+
+my_overview <-  my_overview + binned_scale(name = "Depth (m)", aesthetics = "fill", scale_name = "stepsn",
+               ##palette = function(x) c("#54A3D1", "#7DC9F0", "#AFDAFD", "#C4E5F4", "#D7F0FF"),#, "#EBF3F5"),
+               palette = function(x) c("#2D7FAC", "#60ADD4", "#AFDAFD", "#C4E5F4", "#D7F0FF", "grey90"),#, "#EBF3F5"),
+               breaks = c(-6000, -4000, -3000, -2000, -1000, 0, 9999), na.value = "grey90",
+               labels = function(z) abs(z), ## remove - sign from labels
+               limits = c(-6000, 4000), show.limits = TRUE, guide = "colorsteps")
+
+
+overview.rectangle <-  my_overview +
+  geom_path(data = rectangle.coord, aes(x=Long.proj, y=Lat.proj), lwd = 1.5) +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+```
+
+## Base map
+
+```{r base-map}
+eDNA <- read.csv("data/krill.eDNA.data.for.figures.csv")
+
+eDNA$CTD.depth <- as.factor(eDNA$CTD.depth )
+
+eDNA.CTDs <- droplevels(eDNA[eDNA$CTD.depth %in% c("top", "bottom"), ])
+
+myplot <- SOmap_auto(c(max(eDNA.CTDs$Longitude), min(eDNA.CTDs$Longitude)-3, eDNA.CTDs$Longitude),
+                     c(max(eDNA.CTDs$Latitude) + 1.8, min(eDNA.CTDs$Latitude), eDNA.CTDs$Latitude),
+                     input_points = FALSE, input_lines = FALSE, fronts = TRUE)
+
+myplotgg <- SOgg(myplot) ## creates a SOmap_gg object
+
+## use ADD coastline, because the SOmap-bundled one is not visually consistent at this scale
+cx <- readRDS("data/ADD_coastline.rds")
+## note, that was created from the original ADD gpkg downloaded from BAS with:
+##   cx <- sf::st_read("data/add_coastline_high_res_polygon_v7_9.gpkg")
+##   cx <- SOproj(cx, target = SOcrs()) ## reproject
+##   cx <- sf::st_crop(cx, sf::st_bbox(myplotgg$coastline[[1]]$plotargs$data) * c(1.2, 1.2, 1.2, 0.8)) ## crop but with extra margin
+##   saveRDS(cx, "data/ADD_coastline.rds")
+
+cx <- SOproj(cx, target = SOcrs()) ## reproject
+cx <- sf::st_crop(cx, sf::st_bbox(myplotgg$coastline[[1]]$plotargs$data)) ## and re-trim
+
+myplotgg$coastline <- SO_plotter(plotfun = "ggplot2::geom_sf",
+                                 plotargs = list(data = cx[cx$surface == "land", ], fill = "#EBEBEB", col = "black", linewidth = 0.25, inherit.aes = FALSE))
+myplotgg$ice <- SO_plotter(plotfun = "ggplot2::geom_sf",
+                           plotargs = list(data = cx[cx$surface != "land", ], fill = "#F4F4F4", col = "black", linewidth = 0.25, inherit.aes = FALSE))
+
+## other tweaks
+myplotgg$graticule[[1]]$plotargs$linewidth <- 0.25
+
+my_ggplot <- plot(myplotgg) ## creates a ggplot object
+
+## add discretized (binned) scale so that bathymetry is only coloured by broad depth ranges
+my_ggplot <-  my_ggplot + binned_scale(name = "Depth (m)", aesthetics = "fill", scale_name = "stepsn",
+                                       palette = function(x) c("#2D7FAC", "#60ADD4", "#AFDAFD", "#C4E5F4", "#D7F0FF"),
+                                       breaks = c(-6000, -4000, -3000, -2000, -1000, 0, 9999), na.value = "blue",
+                                       labels = function(z) abs(z), ## remove - sign from labels
+                                       limits = c(-6000, 0), show.limits = TRUE, guide = "colorsteps")
+
+
+eDNA[c("Long.proj", "Lat.proj")] <- SOproj(cbind(eDNA$Longitude, eDNA$Latitude),  target = SOcrs())
+
+## stations
+Davis.station <- data.frame(Latitude = -68.5762, Longitude = 77.9696)
+Mawson.station <- data.frame(Latitude = -67.6027, Longitude = 62.8730)
+Davis.station[c("Long.proj", "Lat.proj")] <- SOproj(cbind(Davis.station$Longitude, Davis.station$Latitude),  target = SOcrs())
+Mawson.station[c("Long.proj", "Lat.proj")] <- SOproj(cbind(Mawson.station$Longitude, Mawson.station$Latitude),  target = SOcrs())
+
+## add TEMPO fronts
+TEMPO.fronts <- read.csv("data/TEMPO_FRONTS_for_plotting.csv")
+TEMPO.fronts[, 1:5] <- sapply(TEMPO.fronts[, 1:5], as.numeric)
+
+## Project each front separately:
+ASF.TEMPO <- as.data.frame(SOproj(TEMPO.fronts$Transect..oE., -TEMPO.fronts$ASF..oS., target = SOcrs()))[, 1:2]
+ASF.N.TEMPO <- as.data.frame(SOproj(TEMPO.fronts$Transect..oE.[c(2:4, 6:7)], -TEMPO.fronts$ASF.N..oS.[c(2:4, 6:7)], target = SOcrs()))[, 1:2]
+SB.TEMPO <- as.data.frame(SOproj(TEMPO.fronts$Transect..oE., -TEMPO.fronts$SBdy..oS., target = SOcrs()))[, 1:2]
+SACCF.TEMPO <- as.data.frame(SOproj(TEMPO.fronts$Transect..oE., -TEMPO.fronts$SACCF..oS., target = SOcrs()))[, 1:2]
+
+## generate smooth data frames
+spline_ASF.TEMPO <- as.data.frame(spline(ASF.TEMPO$x, ASF.TEMPO$y))
+spline_ASF.N.TEMPO <- as.data.frame(spline(ASF.N.TEMPO$x, ASF.N.TEMPO$y))
+spline_SB.TEMPO <- as.data.frame(spline(SB.TEMPO$x, SB.TEMPO$y))
+spline_SACCF.TEMPO <- as.data.frame(spline(SACCF.TEMPO$x, SACCF.TEMPO$y))
+
+transect.labels <- data.frame(name = c(1:6), lat = c(rep(-61.6,4), rep(-62.6,2)), lon = c(55, 60, 65, 70, 75, 80))
+transect.labels[c("Long.proj", "Lat.proj")] <- SOproj(cbind(transect.labels$lon, transect.labels$lat),  target = SOcrs())
+
+## transect start and end times
+transect_start_end <- readRDS("data/acoustic.data.files/tempo_transect_times.rds")
+## helper function
+transect_from_datetime <- function(dt) {
+    out <- rep(NA_integer_, length(dt))
+    for (i in seq_len(nrow(transect_start_end))) {
+        out[which(dt >= transect_start_end$start_time_utc[i] & dt <= transect_start_end$end_time_utc[i])] <- transect_start_end$transect[i]
+    }
+    out
+}
+## underway data
+ux <- data.table::fread("data/acoustic.data.files/in2021_v01uwy1min.csv", data.table = FALSE)
+ux <- ux %>% dplyr::rename(longitude = "longitude(degree_east)", latitude = "latitude(degree_north)") %>%
+    mutate(date_time = lubridate::dmy_hms(paste(.data$date, .data$time)))
+ux$transect <- transect_from_datetime(ux$date_time)
+ux[c("Long.proj", "Lat.proj")] <- SOproj(cbind(ux$longitude, ux$latitude),  target = SOcrs())
+
+## show ice for ends of each transect
+ice_dates <- ux %>% dplyr::filter(!is.na(.data$transect)) %>% group_by(.data$transect) %>% slice_min(.data$latitude) %>% mutate(date = as.Date(.data$date_time)) %>% dplyr::select("transect", "date", "longitude", "Long.proj")
+ic <- stack("data/tempo-ice.grd")
+## generated with (requires a machine with raadtools installed and configured):
+##    library(raadtools)
+##    ic <- read_amsr2_ice(ice_dates$date)
+##    ic <- raster::crop(ic, c(raster::extent(xmin = 808950, xmax = 3918643, ymin = -183688, ymax = 2418787)))
+##    writeRaster(ic, filename = "data/tempo-ice.grd")
+
+## crop each layer to the (projected) transect longitude plus/minus a bit, and extract the 15% ice contours
+icl <- lapply(seq_len(nlayers(ic)), function(z) {
+    out <- SOproj(ic[[z]], target = SOcrs())
+    raster::rasterToContour(raster::crop(out, raster::extent(c(ice_dates$Long.proj[z] + c(-1, 1) * 100e3, extent(out)[3:4]))), levels = 15)
+})
+
+## keep the northernmost contour only and convert to data.frame
+icl <- bind_rows(lapply(seq_along(icl), function(z) {
+    out <- coordinates(icl[[z]])
+    keep <- which.max(sapply(out[[1]], function(w) max(w[, 2]))) ## keep northern-most
+    setNames(as.data.frame(out[[1]][[keep]]), c("x", "y")) %>% mutate(transect = z)
+}))
+
+## add transects to base plot with thin black lines
+## this will be overlaid (in some plots) with thicker lines when the acoustics was active
+my_ggplot <- my_ggplot + geom_path(data = ux %>% dplyr::filter(!is.na(.data$transect)), aes(Long.proj, Lat.proj, group = transect), colour = "black", linewidth = 0.25)
+
+## we will add the entire line for each front, but that means we need to hold the map x- and y-limits as they are now
+map_lims <- c(layer_scales(my_ggplot)$x$range$range, layer_scales(my_ggplot)$y$range$range)
+
+my_ggplot_fronts <- my_ggplot +
+    geom_line(data = spline_SACCF.TEMPO, aes(x = x, y = y), colour = "darkblue", linewidth = 0.5, linetype = "dashed") +
+    geom_line(data = spline_SB.TEMPO, aes(x = x, y = y), colour = "darkblue", linewidth = 0.5, linetype = "dashed") +
+    geom_path(data = icl, aes(x, y, group = transect), colour = "firebrick") +
+    geom_point(data = Davis.station,aes(x=Long.proj, y=Lat.proj), size = 2, stroke = 1, shape = 16, colour = "firebrick") +
+    geom_point(data = Mawson.station,aes(x=Long.proj, y=Lat.proj), size = 2, stroke = 1, shape = 16, colour = "firebrick") +
+    annotate(geom = "text", x = Davis.station$Long.proj + 40000, y = Davis.station$Lat.proj, colour = "#2e3785", label = "Davis station", hjust = 0) +
+    annotate(geom = "text", x = Mawson.station$Long.proj, y = Mawson.station$Lat.proj-30000, colour = "#2e3785", label = "Mawson station", hjust=0) +
+    annotate(geom = "label", x = transect.labels$Long.proj, y = transect.labels$Lat.proj, colour = "black", label = transect.labels$name) +
+    coord_sf(xlim = map_lims[1:2], ylim = map_lims[3:4]) ## enforce previous map limits
+
+## some general plotting settings
+age_manual_colours <- c("recent" = "#35978f", "undetermined" = "grey90", "old" ="#d73027")
+
+```
+
+## Add sampling
+
+```{r add-sampling-to-map}
+
+## acoustic data = swarms
+swarms <- readRDS("data/acoustic.data.files/swarms.rds") %>% dplyr::rename(date_time = "timeStamp") %>% dplyr::arrange(.data$date_time)
+swarms$transect <- as.integer(swarms$transect)
+swarms$biomass <- 1e-3 * swarms$vol.den.gm3 * swarms$Length* pi* (swarms$Height_mean / 2)**2 ## kg
+
+## and intervals
+echo_intervals <- readRDS("data/acoustic.data.files/TEMPO_krill_density_extra_5_6.rds")
+echo_intervals$date_time <- lubridate::ymd_hms(paste(echo_intervals$Ping_date, echo_intervals$Ping_time))
+echo_intervals <- echo_intervals %>% dplyr::arrange(.data$date_time)
+
+## transform lat long:
+swarms[c("Long.proj", "Lat.proj")] <- SOproj(cbind(swarms$Lon_M, swarms$Lat_M),  target = SOcrs())
+echo_intervals[c("Long.proj", "Lat.proj")] <- SOproj(cbind(echo_intervals$Lon_M, echo_intervals$Lat_M),  target = SOcrs())
+
+
+## find runs of acoustic krill observations spaced fairly closely together. We will plot each run as a continuous line on the map, with breaks between lines corresponding to time gaps
+temp_cols <- c("date_time", "Long.proj", "Lat.proj", "Lon_M", "Lat_M")
+acoustics_effort <- echo_intervals[, temp_cols] %>% dplyr::arrange(.data$date_time)
+acoustics_effort$segment <- c(0, cumsum(as.numeric(diff(acoustics_effort$date_time, units = "mins")) > 60)) + 1L ## "segment" number
+
+acoustics.map <- my_ggplot_fronts + geom_path(data = acoustics_effort, aes(x = Long.proj, y = Lat.proj, group = segment), col = "black", linewidth = 0.75)
+
+## add CTDs, trawls. Subdivide data into:
+## - CTDs only
+## - trawls only
+## - CTDs and trawls
+
+## subset data to include surface CTDs and trawls
+eDNA$Sample.types <-  case_when(
+    eDNA$CTD.depth == "top" & is.na(eDNA$Filtered.volume..m3..tr) ~ "CTD (eDNA and visual)",
+    eDNA$CTD.depth == "top" & !is.na(eDNA$Filtered.volume..m3..tr) ~ "CTD and trawl",
+    is.na(eDNA$CTD.depth) & !is.na(eDNA$Filtered.volume..m3..tr) ~ "Trawl")
+
+
+eDNA.for.map <- subset(eDNA, !is.na(Sample.types))
+## latitude and longitude for locations where there's only trawls
+eDNA.for.map$Latitude[eDNA.for.map$Sample.types == "Trawl"] <- eDNA.for.map$net_open_lat_dec.tr[eDNA.for.map$Sample.types == "Trawl"]
+eDNA.for.map$Longitude[eDNA.for.map$Sample.types == "Trawl"] <- eDNA.for.map$net_open_lon_dec.tr[eDNA.for.map$Sample.types == "Trawl"]
+eDNA.for.map[c("Long.proj", "Lat.proj")] <- SOproj(cbind(eDNA.for.map$Longitude, eDNA.for.map$Latitude),  target = SOcrs())
+
+CTD.map <- acoustics.map +
+    geom_point(data = eDNA.for.map, aes(Long.proj, Lat.proj, colour = Sample.types), shape = 17, size = 2) +
+    scale_colour_manual(values = c("darkgoldenrod1", "tomato1", "darkmagenta", "blue")) +
+    geom_point(data = eDNA.for.map, aes(Long.proj, Lat.proj), shape = 2, size = 2) +
+    geom_label_repel(data = eDNA.for.map[eDNA.for.map$trawlno.tr %in% c("T18"), ], aes(Long.proj, Lat.proj,label = trawlno.tr),
+                     box.padding = unit(0.25, "lines"), point.padding = unit(0, "lines"), min.segment.length = unit(0, "lines"),
+                     fill = "grey", nudge_x = -40000, nudge_y = 20000) +
+    geom_label_repel(data = eDNA[eDNA$Sample == "145A", ], aes(Long.proj, Lat.proj),label = "T15",
+                     box.padding = unit(0.25, "lines"), point.padding = unit(0, "lines"), min.segment.length = unit(0, "lines"), fill = "grey",
+                     nudge_x = 0, nudge_y = -60000) +
+    labs(colour = "Sampling activity")
+
+## extract and remove legends
+Figure1.nolegend <- CTD.map + theme(legend.position = "none")
+legend.all <- get_legend(CTD.map + theme(legend.box = "horizontal"))
+
+## assemble figure:
+legend.inset <- plot_grid(legend.all, overview.rectangle, nrow = 2, rel_heights = c(0.6, 1))
+Figure1 <- plot_grid(Figure1.nolegend, legend.inset, nrow = 1, rel_widths = c(1, 0.6))
+
+## jpeg(filename = "Figure1-toedit.jpg", width = 2200*1.3, height = 1400*1.3, units = "px", quality = 100, res = 300)
+Figure1
+## dev.off()
+
+```
+
+# Figure 2
+
+## Figure 2 A + B: eDNA amount detected, surface and seafloor
+
+```{r Figure2A-B}
+eDNA$class.strict <- factor(eDNA$class.strict, levels = c("recent", "undetermined", "old", "eDNA no krill"))
+eDNA.CTDs <- droplevels(eDNA[eDNA$CTD.depth %in% c("top", "bottom"), ])
+
+Figure2A <- my_ggplot_fronts +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$CTD.depth=="top", ], aes(x=Long.proj,y=Lat.proj, size = ifelse(!is.na(L1), L1, 3), colour = (class.strict), shape = eDNA_pres)) +
+    scale_shape_manual(values = c(4, 16), name = "eDNA detection") +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$eDNA_pres=="eDNA present"&eDNA.CTDs$CTD.depth=="top", ],
+               aes(x=Long.proj,y=Lat.proj, size = L1), shape = 1) +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$eDNA_pres=="eDNA absent"&eDNA.CTDs$CTD.depth=="top", ],
+               aes(x=Long.proj,y=Lat.proj), size = 2, shape = 4) +
+    scale_colour_manual(values = age_manual_colours, na.translate = FALSE, name = "eDNA age") +
+    scale_size(limits = c(3, 9), name = "Log(eDNA copy numbers)", breaks = c(3, 5, 7, 9)) +
+    ggtitle("Surface")
+
+Figure2B <- my_ggplot_fronts +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$CTD.depth=="bottom", ], aes(x=Long.proj,y=Lat.proj, size = ifelse(!is.na(L1), L1, 3), colour = (class.strict), shape = eDNA_pres)) +
+    scale_shape_manual(values = c(4, 16), name = "eDNA detection") +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$eDNA_pres=="eDNA present"&eDNA.CTDs$CTD.depth=="bottom", ],
+               aes(x=Long.proj,y=Lat.proj, size = L1), shape = 1) +
+    geom_point(data=eDNA.CTDs[eDNA.CTDs$eDNA_pres=="eDNA absent"&eDNA.CTDs$CTD.depth=="bottom", ],
+               aes(x=Long.proj,y=Lat.proj), size = 2, shape = 4) +
+    scale_colour_manual(values = age_manual_colours, na.translate = FALSE, name = "eDNA age") +
+    scale_size(limits = c(3, 9), name = "Log(eDNA copy numbers)", breaks = c(3, 5, 7, 9)) +
+    ggtitle("Seafloor")
+
+Figure2A.nolegend <- Figure2A + theme(legend.position = "none")
+Figure2B.nolegend <- Figure2B + theme(legend.position = "none")
+
+legend.2AB.1 <- get_legend(Figure2A +guides(fill = "none", shape = "none"))
+legend.2AB.2 <- get_legend(Figure2A +guides(colour = "none", size = "none"))
+
+Figure2AB <- plot_grid(Figure2A.nolegend, Figure2B.nolegend, legend.2AB.1, legend.2AB.2,
+                      nrow = 1, labels = c("A", "B", "", ""), rel_widths = c(1, 1, 0.4,0.3))
+
+```
+### Calculate effect of sampling depth on likelihood of detection:
+
+```{r depth-likelihood-of-detection}
+## Test whether the likeihood of detecting eDNA is influenced by sampling depth:
+eDNA.CTDs$eDNA_pres <- as.factor(eDNA.CTDs$eDNA_pres)
+model <- glm(eDNA_pres ~ CTD.depth, data = eDNA.CTDs, family = binomial)
+plot(model)
+summary(model)
+anova(model)
+
+```
+
+### eDNA abundance: surface vs seafloor
+
+```{r eDNA-abundance-surface-seafloor}
+model <- lm(L1 ~ CTD.depth, data = eDNA.CTDs[eDNA.CTDs$eDNA_pres == "eDNA present", ])
+summary(model)
+
+## Does depth of sampling affect eDNA concentration in seafloor samples?
+eDNA.CTDs$Sampling.depth <- as.numeric(eDNA.CTDs$Sampling.depth)
+
+model <- lm(L1 ~ Sampling.depth, data = eDNA.CTDs[eDNA.CTDs$eDNA_pres == "eDNA present" & eDNA.CTDs$CTD.depth =="bottom", ])
+summary(model) ## --> Sampling depth does not affect eDNA concentration
+
+## Does depth of sampling affect age estimate? Using pr.2 (likelihood of being old)
+model <- lm(pr.2 ~ Sampling.depth, data = eDNA.CTDs[eDNA.CTDs$eDNA_pres == "eDNA present" & eDNA.CTDs$CTD.depth =="bottom", ])
+summary(model)
+anova(model) ## no
+
+```
+
+## Figure 2 C-D
+
+```{r Figure-2CD}
+
+## Same as 2AB, but for metabarcoding data with species proportion of reads and size indicating overall Euphausiid copy numbers (semi quantitative stuff)
+
+colour.saved <- c("#965A3A", "#ff7f00", "#FFD300", "#e41a1c", "#984ea3", "#377eb8", "#4daf4a")
+
+## Surface
+read.prop.names <- c("E.crystal.read.prop", "E.frig.read.prop", "E.super.read.prop", "T.greg.read.prop", "T.mac.read.prop")
+
+## re-calculate max and min to make nice plot
+max.meta.L1 <- max(eDNA.CTDs$Meta.Euphausiids.L1, na.rm = TRUE)
+min.meta.L1 <- min(eDNA.CTDs$Meta.Euphausiids.L1, na.rm = TRUE)
+new.max <- 12
+new.min <- 4
+
+OldRange <- (max.meta.L1 - min.meta.L1)
+NewRange <- (new.max - new.min)
+
+eDNA.CTDs$Meta.Euphausiids.L1.newrange <- (((eDNA.CTDs$Meta.Euphausiids.L1 - min.meta.L1) * NewRange) / OldRange) + new.min
+
+Figure2C <-  my_ggplot_fronts +
+    geom_point(data = subset(eDNA.CTDs[eDNA.CTDs$CTD.depth == "top", ], krill.detection == 0), aes(x = Long.proj, y = Lat.proj), shape = 4, size = 2 ) +
+    new_scale("fill") +
+    geom_scatterpie(data = eDNA.CTDs[eDNA.CTDs$CTD.depth == "top", ], aes(x = Long.proj, y = Lat.proj, group = Sample, r = Meta.Euphausiids.L1.newrange*2500),
+                    cols = read.prop.names, alpha = 0.8) +
+    scale_fill_manual(values = c("E.crystal.read.prop" = colour.saved[1],
+                                 "E.frig.read.prop" = colour.saved[2],
+                                 "E.super.read.prop" = colour.saved[3],
+                                 "T.greg.read.prop" = colour.saved[4],
+                                 "T.mac.read.prop" = colour.saved[5]),
+                      labels = c("E. crystallorophias", "E. frigida", "E. superba", "T. gregaria", "T. macrura"),
+                      name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    ggtitle("Surface")
+
+##Seafloor
+Figure2D <-  my_ggplot_fronts + new_scale("fill") +
+    geom_scatterpie(data = eDNA.CTDs[eDNA.CTDs$CTD.depth == "bottom", ], aes(x = Long.proj, y = Lat.proj, group=Sample, r = Meta.Euphausiids.L1.newrange*2500),
+                    cols = read.prop.names, alpha = 0.8) +
+    geom_point(data = subset(eDNA.CTDs[eDNA.CTDs$CTD.depth == "bottom", ], krill.detection == 0), aes(x = Long.proj, y = Lat.proj), shape = 4, size = 2 ) +
+    scale_fill_manual(values = c("E.crystal.read.prop" = colour.saved[1],
+                                 "E.frig.read.prop" = colour.saved[2],
+                                 "E.super.read.prop" = colour.saved[3],
+                                 "T.greg.read.prop" = colour.saved[4],
+                                 "T.mac.read.prop" = colour.saved[5]),
+                      labels = c("E. crystallorophias", "E. frigida", "E. superba", "T. gregaria", "T. macrura"),
+                      name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    ggtitle("Seafloor")
+
+Figure2C.nolegend <- Figure2C + theme(legend.position = "none")
+Figure2D.nolegend <- Figure2D + theme(legend.position = "none")
+
+legend.2CD <- get_legend(Figure2C + guides(size = "none"))
+
+Figure2CD <- plot_grid(Figure2C.nolegend, Figure2D.nolegend, legend.2CD, nrow = 1, labels = c("C", "D", ""), rel_widths = c(1, 1, 0.7))
+
+```
+## Detection numbers
+
+### qPCR for CTDs
+
+```{r qPCR-detections}
+## Surface samples
+qPCR.surface.positive <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)])
+qPCR.surface.all <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "top"])
+
+qPCR.surface.copymax <- max(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+qPCR.surface.copymin <- min(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+qPCR.surface.copymedian <- median(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+
+qPCR.surface.recent <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$class.strict == "recent" &
+                                               !is.na(eDNA.CTDs$class.strict)])
+qPCR.surface.old <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$class.strict == "old" &
+                                            !is.na(eDNA.CTDs$class.strict)])
+qPCR.surface.undetermined <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$class.strict == "undetermined" &
+                                                     !is.na(eDNA.CTDs$class.strict)])
+
+## Seafloor samples
+qPCR.seafloor.positive <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)])
+qPCR.seafloore.all <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "bottom"])
+
+qPCR.seafloor.copymax <- max(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+qPCR.seafloor.copymin <- min(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+qPCR.seafloor.copymedian <- median(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$L1 > 0 & !is.na(eDNA.CTDs$L1)]))
+
+qPCR.seafloor.recent <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$class.strict == "recent" &
+                                                !is.na(eDNA.CTDs$class.strict)])
+qPCR.seafloor.old <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$class.strict == "old" &
+                                             !is.na(eDNA.CTDs$class.strict)])
+qPCR.seafloor.undetermined <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth == "bottom" & eDNA.CTDs$class.strict == "undetermined" &
+                                                      !is.na(eDNA.CTDs$class.strict)])
+
+## Check sampling depths:
+eDNA.CTDs$Sampling.depth <- as.numeric(eDNA.CTDs$Sampling.depth)
+eDNA.CTDs[order(eDNA.CTDs$Sampling.depth), ]
+
+## Copy number histogram
+depth_names <- c("bottom" = "Seafloor", "top" = "Surface")
+
+Supplementary.Figure.S2 <- ggplot(droplevels(eDNA.CTDs[eDNA.CTDs$CTD.depth %in% c("top", "bottom")]), aes(x=exp(L1), fill=class.strict)) +
+    geom_histogram(colour = "black") +
+    scale_fill_manual(values = age_manual_colours) +
+    facet_grid(.~CTD.depth, labeller= labeller(CTD.depth = depth_names)) +
+    labs(x="Short marker, copy per sample", y = "Count", fill = "eDNA age")
+
+if (save_figs) png(filename = "Supplementary.Figure.S2.png", width = 3600, height = 2000, res = 300)
+print(Supplementary.Figure.S2)
+if (save_figs) dev.off()
+
+```
+
+### Metabarcoding
+
+```{r detections-metabarcoding}
+## Surface samples
+metab.surface.E.sup <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="top" & eDNA.CTDs$Euphausia.superba > 100 &
+                                               !is.na(eDNA.CTDs$Euphausia.superba)])
+
+metab.surface.T.mac <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="top" & eDNA.CTDs$Thysanoessa.macrura > 100 &
+                                               !is.na(eDNA.CTDs$Thysanoessa.macrura)])
+
+metab.surface.E.frig <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="top" & eDNA.CTDs$Euphausia.frigida > 100 &
+                                                !is.na(eDNA.CTDs$Euphausia.frigida)])
+
+metab.surface.T.gre <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="top" & eDNA.CTDs$Thysanoessa.gregaria > 100 &
+                                               !is.na(eDNA.CTDs$Thysanoessa.gregaria)])
+
+metab.surface.E.cry <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="top" & eDNA.CTDs$Euphausia.crystallorophias > 100 &
+                                               !is.na(eDNA.CTDs$Euphausia.crystallorophias)])
+
+## Seafloor samples
+metab.seafloor.E.sup <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="bottom" & eDNA.CTDs$Euphausia.superba > 100 &
+                                                !is.na(eDNA.CTDs$Euphausia.superba)])
+
+metab.seafloor.T.mac <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="bottom" & eDNA.CTDs$Thysanoessa.macrura > 100 &
+                                                !is.na(eDNA.CTDs$Thysanoessa.macrura)])
+
+metab.seafloor.E.frig <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="bottom" & eDNA.CTDs$Euphausia.frigida > 100 &
+                                                 !is.na(eDNA.CTDs$Euphausia.frigida)])
+
+metab.seafloor.T.gre <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="bottom" & eDNA.CTDs$Thysanoessa.gregaria > 100 &
+                                                !is.na(eDNA.CTDs$Thysanoessa.gregaria)])
+
+metab.seafloor.E.cry <- length(eDNA.CTDs$Sample[eDNA.CTDs$CTD.depth=="bottom" & eDNA.CTDs$Euphausia.crystallorophias > 100 &
+                                                !is.na(eDNA.CTDs$Euphausia.crystallorophias)])
+
+```
+
+## Figure 2 E-F
+
+### Calculate sample distances
+
+```{r trawl-sample-distances}
+## TT15
+## The swarm extends from sample 145A to 146A, and the following samples move away from it. Calculate a line for the swarm extent from 145A to 146A, and then calculate the distance of subsequent points to that line.
+samples.TT15 <- eDNA$Sample[eDNA$Sampling.type == "TT 15" & !is.na(eDNA$Sampling.type == "TT 15")]
+line.15 <- cbind(eDNA$Longitude[eDNA$Sample %in% samples.TT15[1:2]], eDNA$Latitude[eDNA$Sample %in% samples.TT15[1:2]])
+pnts.15 <- cbind(eDNA$Longitude[eDNA$Sample %in% samples.TT15[3:6]], eDNA$Latitude[eDNA$Sample %in% samples.TT15[3:6]])
+distance.15 <- dist2Line(pnts.15, line.15, distfun = distGeo)
+eDNA$dist.from.swarm <- NA
+
+## Set distance from swarm for samples collected in swarm to 0:
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT15[1:2]] <- 0
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT15[3:6]] <- distance.15[, 1]
+
+## T18: Same approach, much more convoluted ship's track though
+samples.TT18 <- c("161A","156A", "157A", "158A", "159A", "155A")
+
+line.18 <- rbind(c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[1]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[1]]),
+                 c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[2]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[2]]))
+
+pnts.18 <- rbind(c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[3]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[3]]),
+                 c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[4]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[4]]),
+                 c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[5]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[5]]),
+                 c(eDNA$Longitude[eDNA$Sample %in% samples.TT18[6]], eDNA$Latitude[eDNA$Sample %in% samples.TT18[6]]))
+
+distance.18 <- dist2Line(pnts.18, line.18, distfun = distGeo)
+
+#Set distance from swarm for samples collected in swarm to 0:
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT18[1:2]] <- 0
+
+## set distance of each point to the swarm line
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT18[3]] <- distance.18[1, 1]
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT18[4]] <- distance.18[2, 1]
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT18[5]] <- distance.18[3, 1]
+eDNA$dist.from.swarm[eDNA$Sample %in% samples.TT18[6]] <- distance.18[4, 1]
+
+```
+
+### qPCR plot
+
+```{r both-target-trawls}
+TT.dist <- eDNA[(eDNA$Sampling.type =="TT 18" & !is.na(eDNA$Sampling.type =="TT 18")) | (eDNA$Sampling.type =="TT 15" &
+                                                                                         !is.na(eDNA$Sampling.type =="TT 15")), ]
+
+TT.dist$Trawl.order <- c(1:6, 6, 2:5, 1)
+
+## sort by trawl, then trawl order
+TT.dist <- TT.dist[order(TT.dist[, "Sampling.type"], TT.dist[, "Trawl.order"]), ]
+trawl_labs <- c("TT 15" = "T15", "TT 18" = "T18")
+
+model.TT.qPCR.int <- lm(L1 ~ dist.from.swarm * Sampling.type, data = TT.dist)
+summary(model.TT.qPCR.int)
+anova(model.TT.qPCR.int)
+
+## no interaction between swarm and distance - simplify:
+## Used for Supplementary Table S2
+
+model.TT.qPCR <- lm(L1 ~ dist.from.swarm + Sampling.type, data = TT.dist)
+
+## plot(model.TT.qPCR)
+summary(model.TT.qPCR)
+anova(model.TT.qPCR)
+
+cols <- colorRampPalette(c("darkorchid4", "plum2"))(6)
+
+dist.vis <- visreg(model.TT.qPCR, "dist.from.swarm", by = "Sampling.type", overlay = TRUE, partial = FALSE, rug = FALSE, plot = FALSE)
+
+Figure2E <- ggplot(dist.vis$fit, aes(dist.from.swarm, visregFit, linetype = factor(Sampling.type), fill = factor(Sampling.type))) +
+    geom_ribbon(aes(ymin = visregLwr, ymax = visregUpr), alpha = 0.5, colour = "grey50", linetype = 1, size = 0.2) +
+    geom_line() +
+    scale_fill_grey(start = 0.8, end = 0.8, labels = c("T15", "T18")) +
+    scale_linetype_manual(values = c(1, 1)) +
+    geom_point(shape = 21, fill = "white", size = 4.5, lwd = 2, data = TT.dist, aes(y = L1, x = dist.from.swarm)) +
+    geom_text(data = TT.dist, aes(x = dist.from.swarm, y = L1), label = rep(c("A", "B", "C", "D", "E", "F"), 2), hjust = 0.4, size = 3, vjust = 0.4) +
+    labs(x = "Distance from swarm [m]", y = "Short marker, log(copies per sample)", fill = "eDNA age") +
+    theme_bw() +
+    guides(colour = "none", linetype = "none", fill = "none") +
+    scale_y_continuous(breaks = c(8, 10, 12, 14), limits = c(5, 14.8)) +
+    facet_grid(Sampling.type ~ ., labeller = labeller(Sampling.type = trawl_labs))
+
+Figure2E
+
+## Calculate distance until concentration is a) maximum surface CTD eDNA detection; b) median; c) minimum; for both T15 and T18
+
+## Intercept:
+intercept.T15 <- model.TT.qPCR$coefficients[1]
+intercept.T18 <- model.TT.qPCR$coefficients[1] + model.TT.qPCR$coefficients[3]
+
+slope <- model.TT.qPCR$coefficients[2]
+
+## formula: distance = (target concentration - intercept)/slope
+## target contentrations: min, max and median of recent CTD surface detections.
+
+surface.recent.max.L1 <- log(max(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 &
+                                                  !is.na(eDNA.CTDs$L1) & eDNA.CTDs$class.strict == "recent"]))) ## 7.74
+surface.recent.min.L1 <- log(min(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 &
+                                                  !is.na(eDNA.CTDs$L1) & eDNA.CTDs$class.strict == "recent"]))) ## 3.24
+surface.recent.median.L1 <- log(median(exp(eDNA.CTDs$L1[eDNA.CTDs$CTD.depth == "top" & eDNA.CTDs$L1 > 0 &
+                                                        !is.na(eDNA.CTDs$L1) & eDNA.CTDs$class.strict == "recent"]))) ## 5.215
+
+dist.max.T15 <- (surface.recent.max.L1 - intercept.T15) / slope ## 1367.676
+dist.min.T15 <- (surface.recent.min.L1 - intercept.T15) / slope ## 2793.62
+dist.median.T15 <- (surface.recent.median.L1 - intercept.T15) / slope ## 2169.131
+
+dist.max.T18 <- (surface.recent.max.L1 - intercept.T18) / slope ## 681.4203
+dist.min.T18 <- (surface.recent.min.L1 - intercept.T18) / slope ## 2107.364
+dist.median.T18 <- (surface.recent.median.L1 - intercept.T18) / slope ## 1482.875
+
+```
+
+### Metabarcoding plot
+
+```{r metabarcoding-target-trawls}
+
+## Calculate copies per metabarcoding sample. As all samples contain E. superba reads, set metabarcoding E. superba copies as qPCR values (L1). Then use metabarcoding read proportions to calculate the other species's copy numbers.
+## Species detected in target trawls: E. superba, E. frigida, E. crystallorophias, T. macrura
+
+TT.dist$E.sup.meta.L1.v2 <- TT.dist$L1
+TT.dist$E.sup.meta.v2 <- exp(TT.dist$E.sup.meta.L1.v2)
+
+TT.dist$Euphausiids.total.v2 <- TT.dist$E.sup.meta.v2 / TT.dist$E.super.read.prop
+TT.dist$Euphausiids.total.L1.v2 <- log(TT.dist$Euphausiids.total.v2)
+
+## Technically the following calculations aren't necessary, as we can just plot with read proportions, but hey ...
+
+TT.dist$E.cry.meta.v2 <- TT.dist$Euphausiids.total.v2 * TT.dist$E.crystal.read.prop
+TT.dist$E.fri.meta.v2 <- TT.dist$Euphausiids.total.v2 * TT.dist$E.frig.read.prop
+TT.dist$T.mac.meta.v2 <- TT.dist$Euphausiids.total.v2 * TT.dist$T.mac.read.prop
+
+TT.dist$E.cry.meta.L1.v2 <- log(TT.dist$E.cry.meta.v2)
+TT.dist$E.fri.meta.L1.v2 <- log(TT.dist$E.fri.meta.v2)
+TT.dist$T.mac.meta.L1.v2 <- log(TT.dist$T.mac.meta.v2)
+
+TT.dist$E.cry.meta.L1.v2[is.infinite(TT.dist$E.cry.meta.L1.v2)] <- 0
+TT.dist$E.fri.meta.L1.v2[is.infinite(TT.dist$E.fri.meta.L1.v2)] <- 0
+TT.dist$T.mac.meta.L1.v2[is.infinite(TT.dist$T.mac.meta.L1.v2)] <- 0
+
+TT.meta.L1s <- c("E.sup.meta.L1.v2", "E.cry.meta.L1.v2", "E.fri.meta.L1.v2", "T.mac.meta.L1.v2")
+
+Figure2F <- ggplot(data = TT.dist, aes(x = dist.from.swarm, y = Euphausiids.total.L1.v2)) +
+    geom_pie_glyph(slices = read.prop.names, colour = 'black', radius = 0.3) +
+    xlab("Distance from swarm [m]") +
+    ylab("log(Euphausiid copies)") +
+    scale_fill_manual(values = c("E.crystal.read.prop" = colour.saved[1],
+                                 "E.frig.read.prop" = colour.saved[2],
+                                 "E.super.read.prop" = colour.saved[3],
+                                 "T.mac.read.prop" = colour.saved[5]),
+                      labels = c("E. crystallorophias",  "E. frigida", "E. superba", "T. macrura"),
+                      name = "Krill species") +
+    scale_y_continuous(breaks=c(8,10,12,14), limits = c(5,14.8)) +
+    facet_grid(Sampling.type~., labeller = labeller(Sampling.type = trawl_labs)) +
+    theme_bw() +
+    theme(legend.text = element_text(face = "italic"))
+
+```
+
+### Figure 2 EF
+
+```{r Figure2EF}
+
+legend.2F <- get_legend(Figure2F)
+Figure2EF <- plot_grid(Figure2E, Figure2F+guides(fill= "none"), legend.2F, nrow = 1, labels = c("E", "F", ""), rel_widths = c(1,1,0.7))
+
+```
+
+### Combine subfigues 2 ABCDEF
+
+```{r combine-figure-2}
+
+Figure2 <-  plot_grid(Figure2AB, Figure2CD, Figure2EF, nrow = 3)
+
+## save it
+## jpeg(filename = "Figure2.jpg", width = 4500, height = 4500, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Figure.png",width = 4500, height = 4500, res = 300)
+print(Figure2)
+if (save_figs) dev.off()
+
+```
+
+# Compare metabarcoding to qPCR
+
+## Supplementary Figure S5: correlation of copy numbers
+
+```{r correlation-of-copy-numbers}
+
+## Comparison to L1 (short marker)
+model <- lm(Meta.E.sup.L1 ~ L1, data = eDNA.CTDs)
+summary(model)
+anova(model) ## R^2: 0.18
+
+eDNA.CTDs$CTD.depth <- as.factor(eDNA.CTDs$CTD.depth)
+
+## Used in supplementary table S3
+model2 <- lm(Meta.E.sup.L1 ~ L1 + CTD.depth,  data = eDNA.CTDs)
+plot(model2)
+summary(model2) ## R^2: 0.4
+anova(model2)
+
+AIC(model, model2) ## model2 is better fit
+
+## visualisation with depth included
+
+visual <- visreg(model2, "L1", by = "CTD.depth", overlay = TRUE, partial = FALSE, rug = FALSE, plot = FALSE)
+
+Supplementary.Figure.S5 <- ggplot(visual$fit, aes(L1, visregFit, linetype = factor(CTD.depth), fill = factor(CTD.depth))) +
+    geom_ribbon(aes(ymin = visregLwr, ymax = visregUpr), alpha = 0.5, colour = "grey50", linetype = 1, size = 0.2) +
+    geom_line() +
+    scale_fill_grey(start = 0.5, end = 0.8, labels = c("Seafloor", "Surface")) +
+    labs(linetype = "Weight", fill = "Weight") +
+    geom_point(data = eDNA.CTDs, aes(y = Meta.E.sup.L1, x = L1, colour = CTD.depth), size = 3) +
+    geom_point(data = eDNA.CTDs, aes(y = Meta.E.sup.L1, x = L1), shape = 1, size = 3) +
+    scale_colour_manual(values = c("black", "white"), labels = c("Seafloor", "Surface")) +
+    labs(x = "log(qPCR copy number)", y = "log(metabarcoding copy number)", fill = "CTD sampling depth") +
+    geom_abline(slope = 1, intercept = 0, colour = "red") +
+    theme_bw() +
+    guides(colour = "none", linetype = "none")
+
+## jpeg("Supplementary.Figure.S5.jpg", width = 3600, height = 2000, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Correlation.meta.qPCR.copies.png", width = 3600, height = 2000, res = 300)
+print(Supplementary.Figure.S5)
+if (save_figs) dev.off()
+
+```
+
+## Supplementary Figures S3 and S4: mismatches of detection
+
+```{r check-mismatches}
+eDNA$overlap <- case_when(
+    eDNA$metag_pres == "metagenomics E.superba present" & eDNA$eDNA_pres == "eDNA present" ~ "both",
+    eDNA$metag_pres == "metagenomics E.superba present" & eDNA$eDNA_pres == "eDNA absent" ~ "Metabarcoding only",
+    eDNA$metag_pres == "metagenomics E.superba absent" & eDNA$eDNA_pres == "eDNA present" ~ "qPCR only",
+    eDNA$metag_pres == "metagenomics E.superba absent" & eDNA$eDNA_pres == "eDNA absent" ~ "neither")
+
+cbind(as.character(eDNA$Sample), eDNA$overlap, eDNA$metag_pres, eDNA$eDNA_pres)
+
+qPCR.only <- length(eDNA$overlap[eDNA$overlap =="qPCR only" & !is.na(eDNA$overlap)])
+meta.only <- length(eDNA$overlap[eDNA$overlap =="Metabarcoding only" & !is.na(eDNA$overlap)])
+both.methods <- length(eDNA$overlap[eDNA$overlap =="both" & !is.na(eDNA$overlap)])
+neither <- length(eDNA$overlap[eDNA$overlap =="neither" & !is.na(eDNA$overlap)])
+
+## make an euler diagram
+
+overlap.data <- c("qPCR" = qPCR.only, "Metabarcoding" = meta.only, "qPCR&Metabarcoding" = both.methods)
+Supplementary.Figure.S3 <- plot(euler(overlap.data), quantities = TRUE, legend = TRUE)
+
+## jpeg(filename = "Supplementary.Figure.S3.jpg", width = 3600, height = 1800, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Supplementary.Figure.S3.png", width = 3600, height = 1800, res = 300)
+print(Supplementary.Figure.S3)
+if (save_figs) dev.off()
+
+## Investigate the fit
+
+Supplementary.Figure.S4A <- ggplot(eDNA[eDNA$overlap %in% c("both", "qPCR only") & !is.na(eDNA$overlap), ], aes(x = L1, fill = class.strict)) +
+    geom_histogram(colour = "black") +
+    scale_fill_manual(values = age_manual_colours) +
+    facet_grid( . ~overlap) +
+    labs(x = "Log(short marker copies)", y = "Samples", fill = "eDNA age") +
+    theme_bw()
+
+## Question: does fragmentation and eDNA quantity explain detectability for metabarcoding?
+
+S4A.nolegend <- Supplementary.Figure.S4A + guides(fill = "none")
+legend.S4A <- get_legend(Supplementary.Figure.S4A)
+
+Supplementary.Figure.S4B <- ggplot(eDNA[eDNA$overlap %in% c("both", "Metabarcoding only") & !is.na(eDNA$overlap), ],
+                                   aes(x = Meta.E.sup.L1), fill = "deepskyblue2") +
+    geom_histogram(colour = "black") +
+    facet_grid(. ~overlap) +
+    theme_bw() +
+    labs(x = expression("Log(metabarcoding " * italic(E.~superba) * " copies)"), y = "Samples")
+
+Supplementary.Figure.S4 <- plot_grid(S4A.nolegend, legend.S4A, Supplementary.Figure.S4B, ncol = 2,
+                                     labels = c("A", "", "B"), rel_widths = c(1, 0.2, 1))
+
+##jpeg(filename = "Supplementary.Figure.S4.jpg", width = 3600, height = 3600, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Supplementary.Figure.S4.png", width = 3600, height = 3600, res = 300)
+print(Supplementary.Figure.S4)
+if (save_figs) dev.off()
+
+## Copy numbers for mismatches:
+
+min(eDNA$Cop.Corr.R1[eDNA$overlap == "qPCR only"], na.rm = TRUE)
+max(eDNA$Cop.Corr.R1[eDNA$overlap == "qPCR only"], na.rm = TRUE)
+
+min(eDNA$Meta.E.sup.copies[eDNA$overlap == "Metabarcoding only"], na.rm = TRUE)
+max(eDNA$Meta.E.sup.copies[eDNA$overlap == "Metabarcoding only"], na.rm = TRUE)
+
+median(eDNA$Meta.E.sup.copies[eDNA$overlap %in% c("Metabarcoding only", "both")], na.rm = TRUE)
+
+```
+
+# Figure 3
+
+Overview of acoustics
+
+```{r acoust-map}
+## jpeg(filename = "Figure3.jpg", width = 2200, height = 1400, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Figure-acoustics.png", width = 2200, height = 1400, res = 300)
+
+print(
+    acoustics.map +
+    geom_point(data = echo_intervals, aes(Long.proj, Lat.proj, colour = areal_biomassden_gWWm2, size = areal_biomassden_gWWm2), inherit.aes = FALSE) +
+    ## enforce scales for colour and point size to match, so they are combined into one legend on the plot
+    scale_colour_distiller(palette = "Oranges", transform = "sqrt", breaks = c(0, 200, 400, 600), name = "Density (gWW/m\ub2)") +
+    scale_size_continuous(breaks = c(0, 200, 400, 600), transform = "sqrt", name = "Density (gWW/m\ub2)") +
+    guides(color = guide_legend(), size = guide_legend()))
+
+if (save_figs) dev.off()
+
+```
+
+## eDNA vs acoustic biomass
+
+eDNA vs acoustic biomass, by distance from surface CTD stations.
+
+```{r echo-edna1}
+max_dist_from_stn <- 15 ## km
+
+## we want to adjust the biomass for time of day
+## helper function to calculate normalized time of day (relative to midnight/sunrise/noon/sunset) from clock time
+stime_to_ntod <- function(lat, lon, sample_dt) {
+    if (is.na(lat) || is.na(lon) || is.na(sample_dt)) return(NA_real_)
+    sampling_date <- as.Date(sample_dt) ## date
+    sampling_time <- lubridate::hour(sample_dt) ## UTC hour 0-24
+    ref_ntod <- c(0, 0.5, 1, 1.5) ## we use 0 for midnight, 0.5 for sunrise, 1 for noon, 1.5 for sunset, 2 (same as 0) is midnight
+    ## get sunrise, sunset time (slow)
+    this_dl <- suncalc::getSunlightTimes(sampling_date, lat, lon)[1, 6:7] ## sunrise sunset
+    this_dl <- (unlist(this_dl) %% (24 * 3600)) / 3600
+    if (this_dl[1] > this_dl[2]) this_dl[1] <- this_dl[1] - 24
+    ref_dl <- c((this_dl[1] + this_dl[2]) / 2 - 12, this_dl[1], (this_dl[1] + this_dl[2]) / 2, this_dl[2]) ## midnight sunrise noon sunset
+    ## the sunrise/sunset times in this_dl can be outside the range 0-24 (because e.g. sunrise for date X might have happened on X-1 if our time zone tmz is offset from our longitude, which ours is)
+    ## so just repeat the times +/- 24 hours so we are sure that our sunrise/set times bracket our actual sampling time
+    ## and map our sampling_time to the 0-2 scale given by the sun event times, using lifar interpolation
+    out <- if (!any(is.na(ref_dl))) approx(c(ref_dl - 24, ref_dl, ref_dl+24), c(ref_ntod-2, ref_ntod, ref_ntod+2), sampling_time)$y else NA_real_
+    out <- out %% 2 ## back to the 0-2 range
+    if (is.na(out)) 3 else out ## NA's are too far south, 24-hour light
+}
+
+## add the normalized time of day to our acoustics dataframe
+echo_intervals$ntod <- sapply(seq_len(nrow(echo_intervals)),
+                              function(z) stime_to_ntod(echo_intervals$Latitude[z], echo_intervals$Longitude[z], echo_intervals$date_time[z]))
+
+## assemble acoustics interval data (biomass) as a function of distance from each eDNA sample
+
+fig3n_data <- bind_rows(lapply(which(eDNA$CTD.depth == "top"), function(i) {
+    filt_echo <- echo_intervals %>% dplyr::filter(.data$transect == eDNA$transect[i])
+    if (nrow(filt_echo) < 1) return(NULL) ## no acoustics around this station
+    dd <- (geosphere::distGeo(cbind(eDNA$Longitude[i], eDNA$Latitude[i]), cbind(filt_echo$Lon_M, filt_echo$Lat_M))) / 1e3 ## km
+    ind <- which(dd <= max_dist_from_stn) ## within range
+    eDNA[rep(i, length(ind)), ] %>% dplyr::select(-"ntod.prev") %>%
+        bind_cols(filt_echo[ind, ] %>% dplyr::select(-"transect", -"Latitude", -"Longitude", -"Lat.proj", -"Long.proj"), distance = dd[ind])
+}))
+
+## relabel eDNA age (class.strict) entries
+fig3n_data <- fig3n_data %>% left_join(eDNA %>% dplyr::filter(eDNA$CTD.depth == "top") %>% count(.data$class.strict), by = "class.strict") %>%
+    mutate(class.strict = case_match(.data$class.strict,
+                                     "eDNA no krill" ~ "eDNA: no krill",
+                                     "old" ~ "eDNA: old",
+                                     "recent" ~ "eDNA: recent",
+                                     "undetermined" ~ "eDNA: age undetermined",
+                                     .default = .data$class.strict)) %>%
+    group_by(.data$class.strict) %>%
+    mutate(label = as.factor(paste0(.data$class.strict, " (N = ", .data$n[1], ")"))) %>% ungroup
+
+## threshold "presence" at the 25th percentile of the non-zero biomass values
+this <- fig3n_data %>%
+    mutate(present = .data$areal_biomassden_gWWm2 > quantile(fig3n_data$areal_biomassden_gWWm2[fig3n_data$areal_biomassden_gWWm2 > 0], 0.25))
+
+## try fits of various models for comparison
+fit0 <- gam(present ~ 1, data = this, family = binomial) ## intercept only
+fit1 <- gam(present ~ s(ntod, bs = "cc", k = 7), data = this, family = binomial) ## time of day
+fit2 <- gam(present ~ s(distance, k = 5) + s(ntod, bs = "cc", k = 7), data = this, family = binomial) ## time of day and distance
+fit3 <- gam(present ~ label + s(ntod, bs = "cc", k = 7), data = this, family = binomial) ## time of day and label (eDNA age)
+fit4 <- gam(present ~ label + s(distance, by = label, k = 5) + s(ntod, bs = "cc", k = 7), data = this, family = binomial) ## time of day and distance and eDNA age
+AIC(fit0, fit1, fit2, fit3, fit4)
+
+## so there is very strong evidence that adding eDNA age (`label`) to the model improves its fit but only weak evidence that distance matters
+
+## age class and time of day relative to intercept-only:
+diff(AIC(fit3, fit0)$AIC)
+
+## adding distance to age class and ntod model, or adding distance to the ntod-only model:
+diff(AIC(fit1, fit2)$AIC)
+diff(AIC(fit3, fit4)$AIC)
+
+summary(fit3)
+
+## plot of the effect of time of day
+## jpeg("Supplementary.Figure.S6.jpg", width = 2000, height = 2000, units = "px", quality = 100, res = 300)
+gratia::draw(fit3, wrap = FALSE)[[1]] + theme_bw() + labs(title = "Time of day", x = NULL, caption = NULL) +
+    scale_x_continuous(limits = c(0, 2), breaks = c(0, 0.5, 1, 1.5, 2), labels = c("Midnight", "Sunrise", "Noon", "Sunset", "Midnight"))
+## dev.off()
+
+## multiple comparisons
+## get the predicted values (prob of presence) per age class averaged over the diel cycle
+
+px <- as.data.frame(expand.grid(label = levels(this$label), ntod = seq(0, 2, length.out = 48))) ## 48 times per day, i.e. half-hour intervals on average
+px$fitted <- predict(fit3, newdata = px, type = "response")
+px %>% group_by(.data$label) %>% dplyr::summarize(min = min(.data$fitted), max = max(.data$fitted), mean = mean(.data$fitted))
+
+pairs(emmeans(fit3, specs = c("label"), at = list(ntod = seq(0, 2, length.out = 48))))
+
+```
+
+# Figure 4
+
+## Overview of visual detections
+
+## Plots
+
+```{r plot-visual-surface}
+
+eDNA.CTDs$count.class[eDNA.CTDs$count.class == 0]
+eDNA.CTDs$presence[eDNA.CTDs$presence == "Y"] <- "y"
+eDNA.CTDs$count.class[eDNA.CTDs$count.class==5000] <- 1000
+
+## visual_surface
+Figure4A <- my_ggplot_fronts +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "n" & eDNA.CTDs$CTD.depth == "top", ],
+               aes(x = Long.proj, y = Lat.proj), size = 2, colour = "black", shape = 4) +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "y" & eDNA.CTDs$CTD.depth == "top", ],
+               aes(x = Long.proj, y = Lat.proj, size = count.class), shape = 16, colour = "darkgoldenrod1", alpha = 0.8) +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "y"& eDNA.CTDs$CTD.depth == "top", ],
+               aes(x = Long.proj, y = Lat.proj, size = count.class), shape = 1, colour = "black") +
+    scale_size(range = c(1.5, 5), breaks = c(10, 100, 1000), name = "Visual abundance", labels = c("low (1-10)", "medium (10-100)", "high (>100)")) +
+    ggtitle("Surface")
+
+
+## visual_seafloor
+Figure4B <- my_ggplot_fronts +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "n" & eDNA.CTDs$CTD.depth == "bottom", ],
+               aes(x = Long.proj, y = Lat.proj), size = 2, colour = "black", shape = 4) +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "y" & eDNA.CTDs$CTD.depth == "bottom", ],
+               aes(x = Long.proj, y = Lat.proj, size = count.class), shape = 16, colour = "darkgoldenrod1", alpha = 0.8) +
+    geom_point(data = eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$presence == "y" & eDNA.CTDs$CTD.depth == "bottom", ],
+               aes(x = Long.proj, y = Lat.proj, size = count.class), shape = 1, colour = "black") +
+    scale_size(range = c(1.5, 5), breaks = c(10, 100, 1000), name = "Visual abundance", labels = c("low (1-10)", "medium (10-100)", "high (>100)")) +
+    ggtitle("Seafloor")
+
+legend.4AB <- get_legend(Figure4A)
+
+Figure4AB <- plot_grid(Figure4A + theme(legend.position = "none"),
+                       Figure4B + theme(legend.position = "none"), legend.4AB, nrow = 1, labels = c("A", "B", ""), rel_widths = c(1, 1, 0.7))
+
+## Count things:
+eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$CTD.depth == "top", ] %>% count(presence == "y") ## 18/50 surface CTDs detected E. superba visually
+eDNA.CTDs[!is.na(eDNA.CTDs$presence) & eDNA.CTDs$CTD.depth == "bottom", ] %>% count(presence == "y") ## 7/48 trawls detected E. superba
+
+## jpeg("Figure4.jpg", width = 4500, height = 1500, units = "px", quality = 100, res = 300)
+print(Figure4AB)
+## dev.off()
+
+```
+
+### Calculate effect of sampling depth on likelihood of detection:
+
+```{r depth-likelihood-of-detection-visual}
+## Test whether the likelihood of detecting krill visually is influenced by sampling depth:
+
+eDNA.CTDs$presence <- as.factor(eDNA.CTDs$presence)
+
+model <- glm(presence ~ CTD.depth, data = eDNA.CTDs, family = binomial)
+plot(model)
+summary(model)
+anova(model)
+
+```
+
+### Visual presence, eDNA presence; Supplementary Figure S7
+
+```{r visual-eDNA-presence}
+
+## surface samples only
+surface.vis.pres.eDNA.pres <- eDNA.CTDs %>% dplyr::filter(!is.na(.data$presence) & .data$CTD.depth == "top") %>% group_by(.data$presence) %>%
+    dplyr::summarize(`eDNA present` = sum(.data$class.strict != "eDNA no krill"), `eDNA absent` = sum(.data$class.strict == "eDNA no krill"))
+
+## seafloor samples only
+seafloor.vis.pres.eDNA.pres <- eDNA.CTDs %>% dplyr::filter(!is.na(.data$presence) & .data$CTD.depth == "bottom") %>% group_by(.data$presence) %>%
+    dplyr::summarize(`eDNA present` = sum(.data$class.strict != "eDNA no krill"), `eDNA absent` = sum(.data$class.strict == "eDNA no krill"))
+
+```
+
+### Taking visual abundance into account
+
+```{r eDNA-visual-abundance}
+
+## Surface and seafloor data combined
+## For Supplementary Table S5
+## visual abundance summary
+Supp.Table.S5 <- eDNA.CTDs %>% dplyr::filter(!is.na(presence)) %>% group_by(count.class) %>%
+    dplyr::summarize(`eDNA recent` = sum(class.strict == "recent"),
+                     `recent mean eDNA copies` = mean(Cop.Corr.R1[class.strict == "recent"]),
+                     `recent SD eDNA copies` = sd(Cop.Corr.R1[class.strict == "recent"]),
+                     `eDNA undetermined` = sum(class.strict == "undetermined"),
+                     `undetermined mean eDNA copies` = mean(Cop.Corr.R1[class.strict == "undetermined"]),
+                     `undetermined SD eDNA copies` = sd(Cop.Corr.R1[class.strict == "undetermined"]),
+                     `eDNA old` = sum(class.strict == "old"),
+                     `old mean eDNA copies` = mean(Cop.Corr.R1[class.strict == "old"]),
+                     `old SD eDNA copies` = sd(Cop.Corr.R1[class.strict == "old"]),
+                     `eDNA absent` = sum(class.strict == "eDNA no krill"))
+
+## do visual abundance and eDNA abundance correlate?
+
+eDNA.CTDs$log.vis <- log10(eDNA.CTDs$count.class)
+eDNA.CTDs$log.vis[is.infinite(eDNA.CTDs$log.vis)] <- 0
+
+eDNA.CTDs$vis.class <- factor(case_when(eDNA.CTDs$count.class == 0 ~ "absent",
+                                        eDNA.CTDs$count.class == 10 ~ "low",
+                                        eDNA.CTDs$count.class == 100 ~ "medium",
+                                        eDNA.CTDs$count.class == 1000 ~ "high"), levels = c("absent", "low", "medium", "high"))
+
+visual.present <- subset(eDNA.CTDs, !is.na(presence) & presence == "y")
+
+visual.present$vis <- ordered(visual.present$log.vis)
+visual.present$class.strict <- droplevels(visual.present$class.strict)
+
+## if visually detected, set to 1, else 0
+visual.present$visual.detected <- ifelse(visual.present$log.vis > 0, 1, 0)
+
+## Surface only
+
+visual.surface.present <- subset(eDNA.CTDs, !is.na(presence) & CTD.depth == "top" & presence == "y")
+
+visual.surface.present$visual.detected <- ifelse(visual.surface.present$log.vis > 0, 1, 0)
+
+SuppFig7A <- ggplot(data = visual.surface.present,
+                    aes(x = vis.class, y = visual.detected, fill = class.strict, label = sprintf("%0.0f", Cop.Corr.R1))) +
+    geom_bar(stat = "identity", colour = "grey10", size = 0.25) +
+    geom_text(size = 3, position = position_stack(vjust = 0.5)) +
+    scale_fill_manual(values = c(age_manual_colours, "eDNA no krill" = "grey40")) +
+    theme_bw() +
+    labs(x = "Visual abundance", y = "eDNA detections", fill = "eDNA age") +
+    scale_y_continuous(breaks = seq(0, 10, 2), limits = c(0, 10))
+
+visual.surface.present$class.strict <- droplevels(visual.surface.present$class.strict)
+
+## drop eDNA age = "undetermined" and use a binomial model:
+
+visual.surface.present1 <- visual.surface.present[visual.surface.present$class.strict != "undetermined", ]
+visual.surface.present1$class.strict <- factor(visual.surface.present1$class.strict)
+visual.surface.present1$vis <- factor(visual.surface.present1$vis)
+
+glm.visual.surface <- glm(vis ~ L1 + class.strict, family = binomial(), data = visual.surface.present1)
+summary(glm.visual.surface)
+drop1(glm.visual.surface, test = "Chi")
+
+## Seafloor only
+
+visual.seafloor.present <- subset(eDNA.CTDs, !is.na(presence) & CTD.depth == "bottom" & presence == "y")
+visual.seafloor.present$visual.detected <- ifelse(visual.seafloor.present$log.vis > 0, 1, 0)
+
+SuppFig7B <- ggplot(data = visual.seafloor.present,
+                    aes(x = vis.class, y = visual.detected, fill = class.strict, label = sprintf("%0.0f", Cop.Corr.R1))) +
+                geom_bar(stat = "identity", colour = "grey10", size = 0.25) +
+                geom_text(size = 3, position = position_stack(vjust = 0.5)) +
+                scale_fill_manual(values = c(age_manual_colours, "eDNA no krill" ="grey40")) +
+                theme_bw() +
+                labs(x="Visual abundance", y = "eDNA detections", fill = "eDNA age") +
+                scale_y_continuous(breaks = seq(0, 10, 2), limits = c(0, 10))
+
+
+##Combine surface and seafloor plots
+
+legend.S7AB <- get_legend(SuppFig7B)
+
+## Combine plots
+SuppFig7AB <- plot_grid(SuppFig7A + theme(legend.position = "none"), SuppFig7B + theme(legend.position = "none"), legend.S7AB, labels = c("A", "B", ""), rel_widths = c(1, 1, 0.7), nrow = 1)
+
+
+## jpeg("Supplementary.Figure.S7.jpg", width = 4500, height = 1500, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Supplementary.Figure.S7.png", width = 4500, height = 4500, res = 300)
+print(SuppFig7AB)
+if (save_figs) dev.off()
+
+```
+
+# Figure 5
+
+## Overview trawl detections
+
+RMT 8 trawls include adult krill, whereas RMT 1 trawls include larval krill as well as adults.
+
+### RMT 8 trawl
+
+```{r RMT8-trawl}
+## Identify columns with RMT8 trawl data
+trawl.columns <- c("Crystal..62.2..tr","E.superba.estimate.tr", "Triacantha..assume.62.2..tr", "Tmac..33.7..tr")
+
+## calculate total catch
+eDNA$RMT8.total <- rowSums(eDNA[,trawl.columns], na.rm = TRUE)
+
+## subset data for plotting - only rows that contain RMT8 data
+RMT8 <- eDNA[!is.na(eDNA$Filtered.volume..m3..tr), ]
+RMT8$RMT8.total[RMT8$RMT8.total == 0] <- NA
+
+## transform catch amount for plotting
+max.RMT8 <- max(log(RMT8$RMT8.total), na.rm = TRUE)
+min.RMT8 <- min(log(RMT8$RMT8.total), na.rm = TRUE)
+
+new.max.RMT8 <- 30000
+new.min.RMT8 <- 5000
+
+OldRange.RMT8 = (max.RMT8 - min.RMT8)
+NewRange.RMT8 = (new.max.RMT8 - new.min.RMT8)
+
+RMT8$RMT8.total.newrange = (((log(RMT8$RMT8.total) - min.RMT8) * NewRange.RMT8) / OldRange.RMT8) + new.min.RMT8
+
+## Add an Euphausiid column to match RMT1 plot - can then share legend
+
+RMT8$Euphausiid.fake <- 0.0011
+
+## Need to use trawl coordinates for plotting, and re-project
+
+myplot <- SOmap_auto(c(max(eDNA.CTDs$Longitude), min(eDNA.CTDs$Longitude)-3, eDNA.CTDs$Longitude),
+                     c(max(eDNA.CTDs$Latitude) + 1.8, min(eDNA.CTDs$Latitude), eDNA.CTDs$Latitude),
+                     input_points = FALSE, input_lines = FALSE, fronts = TRUE)
+
+RMT8[c("Long.proj.2", "Lat.proj.2")] <- SOproj(cbind(RMT8$net_open_lon_dec.tr, RMT8$net_open_lat_dec.tr),  target = SOcrs())
+
+trawl.columns.2 <- c(trawl.columns, "Euphausiid.fake")
+
+RMT8.plot.for.legend <- my_ggplot_fronts +
+    new_scale("fill") +
+    geom_scatterpie(data = RMT8, aes(x = Long.proj.2, y = Lat.proj.2, group = trawlno.tr, r = RMT8.total.newrange),
+                    cols = trawl.columns.2, alpha = 0.8) +
+    geom_point(data = subset(RMT8, is.na(RMT8.total)), aes(x = Long.proj.2, y = Lat.proj.2), shape = 4, size = 2 ) +
+    scale_fill_manual(values = c("Crystal..62.2..tr" = colour.saved[1], "E.superba.estimate.tr" = colour.saved[3],
+                                 "Triacantha..assume.62.2..tr" = colour.saved[6], "Tmac..33.7..tr" = colour.saved[5],
+                                 "Euphausiid.fake" = colour.saved[7]),
+                      labels = c("E. crystallorophias", "E. superba", "E. triacantha", "T. macrura", "other Euphausiid"), name = "Krill species") +
+    theme(legend.text = element_text(face = "italic"))
+
+legend.5ABCD <- get_legend(RMT8.plot.for.legend + theme(legend.direction = "vertical", legend.box = "horizontal"))
+
+```
+
+#### Figure 5A, B: RMT8 Routine and Target Trawls
+
+```{r RMT8-regular}
+
+RMT8.routine <- subset(RMT8, trawltype.tr == "routine")
+
+Figure5A <-  my_ggplot_fronts + new_scale("fill") +
+    geom_scatterpie(data = RMT8.routine, aes(x = Long.proj.2, y = Lat.proj.2, group = trawlno.tr, r = RMT8.total.newrange),
+                    cols = trawl.columns, alpha = 0.8) +
+    geom_point(data = subset(RMT8.routine, is.na(RMT8.total)), aes(x = Long.proj.2, y = Lat.proj.2), shape = 4, size = 2 ) +
+    scale_fill_manual(values = c("Crystal..62.2..tr" = colour.saved[1], "E.superba.estimate.tr" = colour.saved[3],
+                                 "Triacantha..assume.62.2..tr" = colour.saved[6], "Tmac..33.7..tr" = colour.saved[5]),
+                      labels = c("E. crystallorophias", "E. superba", "E. triacantha", "T. macrura"), name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    ggtitle("RMT 8 (juveniles/adults), routine trawl")
+
+RMT8.target <- subset(RMT8, trawltype.tr == "target")
+
+Figure5B <-  my_ggplot_fronts + new_scale("fill") +
+    geom_scatterpie(data = RMT8.target, aes(x = Long.proj.2, y = Lat.proj.2, group = trawlno.tr, r = RMT8.total.newrange),
+                    cols = trawl.columns, alpha = 0.8) +
+    geom_point(data = subset(RMT8.target, is.na(RMT8.total)), aes(x = Long.proj.2, y = Lat.proj.2), shape = 4, size = 2 ) +
+    scale_fill_manual(values = c("Crystal..62.2..tr" = colour.saved[1],
+                                 "E.superba.estimate.tr" = colour.saved[3],
+                                 "Tmac..33.7..tr" = colour.saved[5]),
+                      labels = c("E. crystallorophias", "E. superba", "E. triacantha", "T. macrura"), name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    ggtitle("RMT 8 (juveniles/adults), target trawl")
+
+```
+
+### RMT 1 trawl
+
+```{r RMT1-trawl}
+## Identify columns with RMT1 trawl data
+trawl.columns.1 <- c("E.superba.total.tr", "T.macrura.total.tr", "Euphausiid.total.tr")
+trawl.columns.larvae <- c("E.superba.calyptopsis.I.tr", "E.superba.furcilia.II.tr",
+                          "E.superba.furcilia.II.1.tr", "E.superba.late.stage.furcilia.tr",
+                          "T.macrura.calyptopsis.I.tr", "T.macrura.calypopsis.II.tr",
+                          "T.macrura.calyptopsis.III.tr", "T.macrura.late.furcilia.tr",
+                          "T.macrura.furcilia.I.tr", "T.macrura.furcilia.II.tr",
+                          "T.macrura.furcilia.III.tr", "T.macrura.furcilia.IV.tr",
+                          "T.macrura.furcilia.V.tr", "T.macrura.furcilia.VI.tr",
+                          "Euphausiid.calyptopsis.tr" , "Euphausiid.calyptopsis.I.tr",
+                          "Euphausiid.calyptopsis.II.tr", "Euphausiid.furcilia.tr",
+                          "Euphausiid.furcilia.I.tr")
+eDNA$E.superba.larvae <- rowSums(eDNA[,trawl.columns.larvae[1:4]])
+eDNA$T.macrura.larvae <- rowSums(eDNA[,trawl.columns.larvae[5:14]])
+eDNA$Euphausiid.larvae <- rowSums(eDNA[,trawl.columns.larvae[15:19]])
+
+trawl.larvae.totals <- c("E.superba.larvae", "T.macrura.larvae", "Euphausiid.larvae")
+
+## calculate total catch
+eDNA$RMT1.total <- rowSums(eDNA[, trawl.columns.1], na.rm = TRUE)
+
+## calculate total larvae catch
+eDNA$RMT1.larvae.total <- rowSums(eDNA[, trawl.columns.larvae], na.rm = TRUE)
+
+## subset data for plotting - only rows that contain RMT1 data
+RMT1 <- eDNA[!is.na(eDNA$E.superba.tr), ]
+
+RMT1$RMT1.total[RMT1$RMT1.total == 0] <- NA
+RMT1$RMT1.larvae.total[RMT1$RMT1.larvae.total == 0] <- NA
+
+## use the RMT8 adjustment values on RMT1, so that across the figure the values are comparable:
+
+RMT1$RMT1.total.newrange = (((log(RMT1$RMT1.total) - min.RMT8) * NewRange.RMT8) / OldRange.RMT8) + new.min.RMT8
+max.RMT1.new <- max(log(RMT1$RMT1.total.newrange), na.rm = TRUE)
+
+# transform catch amount for plotting, larvae only
+max.RMT1.larvae <- max(log(RMT1$RMT1.larvae.total), na.rm = TRUE)
+min.RMT1.larvae <- min(log(RMT1$RMT1.larvae.total), na.rm = TRUE)
+
+new.max.RMT1.larvae <- 30000
+new.min.RMT1.larvae <- 5000
+
+OldRange.RMT1.larvae = (max.RMT1.larvae - min.RMT1.larvae)
+NewRange.RMT1.larvae = (new.max.RMT1.larvae - new.min.RMT1.larvae)
+
+RMT1$RMT1.larvae.newrange = (((log(RMT1$RMT1.larvae.total) - min.RMT1.larvae) * NewRange.RMT1.larvae) / OldRange.RMT1.larvae) + new.min.RMT1.larvae
+
+## Need to use trawl coordinates for plotting, and re-project
+RMT1[c("Long.proj.2", "Lat.proj.2")] <- SOproj(cbind(RMT1$net_open_lon_dec.tr, RMT1$net_open_lat_dec.tr),  target = SOcrs())
+
+```
+
+#### Figure 5C,D: Plot larvae separately for routine and target trawls:
+
+```{r routine-target-RMT1}
+RMT1.routine <- subset(RMT1, trawltype.tr == "routine")
+RMT1.target <- subset(RMT1, trawltype.tr == "target")
+
+Figure5C <-  my_ggplot_fronts + new_scale("fill") +
+    geom_scatterpie(data = RMT1.routine, aes(x = Long.proj.2, y = Lat.proj.2, group = trawlno.tr, r = RMT1.larvae.newrange),
+                    cols = trawl.larvae.totals, alpha = 0.8) +
+    scale_fill_manual(values = c("E.superba.larvae" = colour.saved[3], "T.macrura.larvae" = colour.saved[5], "Euphausiid.larvae" = colour.saved[7]),
+                      labels = c("E. superba", "T. macrura", "other Euphausiids"), name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    geom_point(data = subset(RMT1.routine, is.na(RMT1.larvae.total)), aes(x = Long.proj.2, y = Lat.proj.2), shape = 4, size = 2, lwd = 2) +
+    ggtitle("RMT 1 (larvae), routine trawl")
+
+Figure5D <-  my_ggplot_fronts + new_scale("fill") +
+    geom_scatterpie(data = RMT1.target, aes(x = Long.proj.2, y = Lat.proj.2, group=trawlno.tr, r = RMT1.larvae.newrange),
+                    cols = trawl.larvae.totals, alpha = 0.8) +
+    scale_fill_manual(values = c("E.superba.larvae" = colour.saved[3], "T.macrura.larvae" = colour.saved[5], "Euphausiid.larvae" = colour.saved[7]),
+                      labels = c("E. superba", "T. macrura", "other Euphausiids"), name = "Krill species") +
+    theme(legend.text = element_text(face = "italic")) +
+    geom_point(data = subset(RMT1.target, is.na(RMT1.larvae.total)), aes(x = Long.proj.2, y = Lat.proj.2), shape = 4, size = 2, lwd = 2) +
+    ggtitle("RMT 1 (larvae), target trawl")
+
+```
+
+### Figure 5ABCD (Target and Routine separately)
+
+```{r figure5abcd}
+
+Figure5ABCD.noleg <- plot_grid(Figure5A + theme(legend.position = "none"), Figure5B + theme(legend.position = "none"),
+                               Figure5C + theme(legend.position = "none"), Figure5D + theme(legend.position = "none"),
+                               ncol = 2, labels = c("A", "B", "C", "D"), rel_widths = c(1,1))
+Figure5ABCD <- plot_grid(Figure5ABCD.noleg, legend.5ABCD, ncol = 2, rel_widths = c(2, 0.7))
+
+```
+
+## Count stuff
+
+### Supplementary Table S6: RMT-8
+
+```{r count-RMT8-detections}
+
+## Detections
+
+## All combined
+RMT8.E.sup <- RMT8 %>% count(E.superba.estimate.tr > 0)
+RMT8.E.cry <- RMT8 %>% count(Crystal..62.2..tr > 0)
+RMT8.T.mac <- RMT8 %>% count(Tmac..33.7..tr > 0)
+RMT8.E.tri  <- RMT8 %>% count(Triacantha..assume.62.2..tr > 0)
+
+## Target trawl detections
+RMT8.E.sup.target <- RMT8.target %>% count(E.superba.estimate.tr > 0) ## 14/15 trawls detected E. superba
+RMT8.E.cry.target <- RMT8.target %>% count(Crystal..62.2..tr > 0) ## 1/15 trawls detected E. crystallorophias
+RMT8.T.mac.target <- RMT8.target %>% count(Tmac..33.7..tr > 0) ## 1/15 trawls detected T. macrura
+RMT8.E.tria.target <- RMT8.target %>% count(Triacantha..assume.62.2..tr > 0) ## 0/15 trawls detected E. triacantha
+
+## Routine trawl detections
+RMT8.E.sup.routine <- RMT8.routine %>% count(E.superba.estimate.tr > 0) ## 21/38 trawls detected E. superba
+RMT8.E.cry.routine <- RMT8.routine %>% count(Crystal..62.2..tr > 0) ## 4/38 trawls detected E. crystallorophias
+RMT8.T.mac.routine <- RMT8.routine %>% count(Tmac..33.7..tr > 0) ## 25/38 trawls detected T. macrura
+RMT8.E.tri.routine <- RMT8.routine %>% count(Triacantha..assume.62.2..tr > 0) ## 8/38 trawls detected E. triacantha
+
+## Abundances per species:
+## All combined:
+
+## E. superba
+Mean.abundance.E.superba <- mean(RMT8$E.superba.estimate.tr[RMT8$E.superba.estimate.tr > 0])
+Median.abundance.E.superba <- median(RMT8$E.superba.estimate.tr[RMT8$E.superba.estimate.tr > 0])
+SD.abundance.E.superba <- sd(RMT8$E.superba.estimate.tr[RMT8$E.superba.estimate.tr > 0])
+max.abundance.E.superba <- max(RMT8$E.superba.estimate.tr[RMT8$E.superba.estimate.tr > 0])
+min.abundance.E.superba <- min(RMT8$E.superba.estimate.tr[RMT8$E.superba.estimate.tr > 0])
+
+## T. macrura
+Mean.abundance.T.macrura <- mean(RMT8$Tmac..33.7..tr[RMT8$Tmac..33.7..tr > 0])
+Median.abundance.T.macrura <- median(RMT8$Tmac..33.7..tr[RMT8$Tmac..33.7..tr > 0])
+SD.abundance.T.macrura <- sd(RMT8$Tmac..33.7..tr[RMT8$Tmac..33.7..tr > 0])
+max.abundance.T.macrura <- max(RMT8$Tmac..33.7..tr[RMT8$Tmac..33.7..tr > 0])
+min.abundance.T.macrura <- min(RMT8$Tmac..33.7..tr[RMT8$Tmac..33.7..tr > 0])
+
+## E. crystallorophias
+Mean.abundance.E.crystal <- mean(RMT8$Crystal..62.2..tr[RMT8$Crystal..62.2..tr > 0])
+Median.abundance.E.crystal <- median(RMT8$Crystal..62.2..tr[RMT8$Crystal..62.2..tr > 0])
+SD.abundance.E.crystal <- sd(RMT8$Crystal..62.2..tr[RMT8$Crystal..62.2..tr > 0])
+max.abundance.E.crystal <- max(RMT8$Crystal..62.2..tr[RMT8$Crystal..62.2..tr > 0])
+min.abundance.E.crystal <- min(RMT8$Crystal..62.2..tr[RMT8$Crystal..62.2..tr > 0])
+
+## E. triacantha
+Mean.abundance.E.triacantha <- mean(RMT8$Triacantha..assume.62.2..tr[RMT8$Triacantha..assume.62.2..tr > 0])
+Median.abundance.E.triacantha <- median(RMT8$Triacantha..assume.62.2..tr[RMT8$Triacantha..assume.62.2..tr > 0])
+SD.abundance.E.triacantha <- sd(RMT8$Triacantha..assume.62.2..tr[RMT8$Triacantha..assume.62.2..tr > 0])
+max.abundance.E.triacantha <- max(RMT8$Triacantha..assume.62.2..tr[RMT8$Triacantha..assume.62.2..tr > 0])
+min.abundance.E.triacantha <- min(RMT8$Triacantha..assume.62.2..tr[RMT8$Triacantha..assume.62.2..tr > 0])
+
+## Combined table:
+RMT8.abundances.combined <- data.frame(Species = c("Detections","Max", "Min", "Mean", "Median", "SD"),
+                                       `E. superba` = c(sprintf("%0.0f", RMT8.E.sup[2, 2]),
+                                                        sprintf("%0.2f", max.abundance.E.superba),
+                                                        sprintf("%0.2f", min.abundance.E.superba),
+                                                        sprintf("%0.2f", Mean.abundance.E.superba),
+                                                        sprintf("%0.2f", Median.abundance.E.superba),
+                                                        sprintf("%0.2f", SD.abundance.E.superba)),
+                                       `T. macrura` = c(sprintf("%0.0f", RMT8.T.mac[2, 2]),
+                                                        sprintf("%0.2f", max.abundance.T.macrura),
+                                                        sprintf("%0.2f", min.abundance.T.macrura),
+                                                        sprintf("%0.2f", Mean.abundance.T.macrura),
+                                                        sprintf("%0.2f", Median.abundance.T.macrura),
+                                                        sprintf("%0.2f", SD.abundance.T.macrura)),
+                                       `E. crystallorophias` = c(sprintf("%0.0f", RMT8.E.cry[2, 2]),
+                                                                 sprintf("%0.2f", max.abundance.E.crystal),
+                                                                 sprintf("%0.2f", min.abundance.E.crystal),
+                                                                 sprintf("%0.2f", Mean.abundance.E.crystal),
+                                                                 sprintf("%0.2f", Median.abundance.E.crystal),
+                                                                 sprintf("%0.2f", SD.abundance.E.crystal)),
+                                       `E. triacantha` = c(sprintf("%0.0f", RMT8.E.tri[2, 2]),
+                                                           sprintf("%0.2f", max.abundance.E.triacantha),
+                                                           sprintf("%0.2f", min.abundance.E.triacantha),
+                                                           sprintf("%0.2f", Mean.abundance.E.triacantha),
+                                                           sprintf("%0.2f", Median.abundance.E.triacantha),
+                                                           sprintf("%0.2f", SD.abundance.E.triacantha)))
+## write.csv(RMT8.abundances.combined, "RMT8.abundances.combined.csv", row.names = FALSE)
+
+## TARGET
+## E. superba
+Target.Mean.abundance.E.superba <- mean(RMT8.target$E.superba.estimate.tr[RMT8.target$E.superba.estimate.tr > 0])
+Target.Median.abundance.E.superba <- median(RMT8.target$E.superba.estimate.tr[RMT8.target$E.superba.estimate.tr > 0])
+Target.SD.abundance.E.superba <- sd(RMT8.target$E.superba.estimate.tr[RMT8.target$E.superba.estimate.tr > 0])
+Target.max.abundance.E.superba <- max(RMT8.target$E.superba.estimate.tr[RMT8.target$E.superba.estimate.tr > 0])
+Target.min.abundance.E.superba <- min(RMT8.target$E.superba.estimate.tr[RMT8.target$E.superba.estimate.tr > 0])
+
+## T. macrura
+Target.Mean.abundance.T.macrura <- mean(RMT8.target$Tmac..33.7..tr[RMT8.target$Tmac..33.7..tr > 0])
+Target.Median.abundance.T.macrura <- median(RMT8.target$Tmac..33.7..tr[RMT8.target$Tmac..33.7..tr > 0])
+Target.SD.abundance.T.macrura <- sd(RMT8.target$Tmac..33.7..tr[RMT8.target$Tmac..33.7..tr > 0])
+Target.max.abundance.T.macrura <- max(RMT8.target$Tmac..33.7..tr[RMT8.target$Tmac..33.7..tr > 0])
+Target.min.abundance.T.macrura <- min(RMT8.target$Tmac..33.7..tr[RMT8.target$Tmac..33.7..tr > 0])
+
+## E. crystallorophias
+Target.Mean.abundance.E.crystal <- mean(RMT8.target$Crystal..62.2..tr[RMT8.target$Crystal..62.2..tr > 0])
+Target.Median.abundance.E.crystal <- median(RMT8.target$Crystal..62.2..tr[RMT8.target$Crystal..62.2..tr > 0])
+Target.SD.abundance.E.crystal <- sd(RMT8.target$Crystal..62.2..tr[RMT8.target$Crystal..62.2..tr > 0])
+Target.max.abundance.E.crystal <- max(RMT8.target$Crystal..62.2..tr[RMT8.target$Crystal..62.2..tr > 0])
+Target.min.abundance.E.crystal <- min(RMT8.target$Crystal..62.2..tr[RMT8.target$Crystal..62.2..tr > 0])
+
+## E. triacantha
+Target.Mean.abundance.E.triacantha <- mean(RMT8.target$Triacantha..assume.62.2..tr[RMT8.target$Triacantha..assume.62.2..tr > 0])
+Target.Median.abundance.E.triacantha <- median(RMT8.target$Triacantha..assume.62.2..tr[RMT8.target$Triacantha..assume.62.2..tr > 0])
+Target.SD.abundance.E.triacantha <- sd(RMT8.target$Triacantha..assume.62.2..tr[RMT8.target$Triacantha..assume.62.2..tr > 0])
+Target.max.abundance.E.triacantha <- max(RMT8.target$Triacantha..assume.62.2..tr[RMT8.target$Triacantha..assume.62.2..tr > 0])
+Target.min.abundance.E.triacantha <- min(RMT8.target$Triacantha..assume.62.2..tr[RMT8.target$Triacantha..assume.62.2..tr > 0])
+
+## Routine
+## E. superba
+Routine.Mean.abundance.E.superba <- mean(RMT8.routine$E.superba.estimate.tr[RMT8.routine$E.superba.estimate.tr > 0])
+Routine.Median.abundance.E.superba <- median(RMT8.routine$E.superba.estimate.tr[RMT8.routine$E.superba.estimate.tr > 0])
+Routine.SD.abundance.E.superba <- sd(RMT8.routine$E.superba.estimate.tr[RMT8.routine$E.superba.estimate.tr > 0])
+Routine.max.abundance.E.superba <- max(RMT8.routine$E.superba.estimate.tr[RMT8.routine$E.superba.estimate.tr > 0])
+Routine.min.abundance.E.superba <- min(RMT8.routine$E.superba.estimate.tr[RMT8.routine$E.superba.estimate.tr > 0])
+
+## T. macrura
+Routine.Mean.abundance.T.macrura <- mean(RMT8.routine$Tmac..33.7..tr[RMT8.routine$Tmac..33.7..tr > 0])
+Routine.Median.abundance.T.macrura <- median(RMT8.routine$Tmac..33.7..tr[RMT8.routine$Tmac..33.7..tr > 0])
+Routine.SD.abundance.T.macrura <- sd(RMT8.routine$Tmac..33.7..tr[RMT8.routine$Tmac..33.7..tr > 0])
+Routine.max.abundance.T.macrura <- max(RMT8.routine$Tmac..33.7..tr[RMT8.routine$Tmac..33.7..tr > 0])
+Routine.min.abundance.T.macrura <- min(RMT8.routine$Tmac..33.7..tr[RMT8.routine$Tmac..33.7..tr > 0])
+
+## E. crystallorophias
+Routine.Mean.abundance.E.crystal <- mean(RMT8.routine$Crystal..62.2..tr[RMT8.routine$Crystal..62.2..tr > 0])
+Routine.Median.abundance.E.crystal <- median(RMT8.routine$Crystal..62.2..tr[RMT8.routine$Crystal..62.2..tr > 0])
+Routine.SD.abundance.E.crystal <- sd(RMT8.routine$Crystal..62.2..tr[RMT8.routine$Crystal..62.2..tr > 0])
+Routine.max.abundance.E.crystal <- max(RMT8.routine$Crystal..62.2..tr[RMT8.routine$Crystal..62.2..tr > 0])
+Routine.min.abundance.E.crystal <- min(RMT8.routine$Crystal..62.2..tr[RMT8.routine$Crystal..62.2..tr > 0])
+
+## E. triacantha
+Routine.Mean.abundance.E.triacantha <- mean(RMT8.routine$Triacantha..assume.62.2..tr[RMT8.routine$Triacantha..assume.62.2..tr > 0])
+Routine.Median.abundance.E.triacantha <- median(RMT8.routine$Triacantha..assume.62.2..tr[RMT8.routine$Triacantha..assume.62.2..tr > 0])
+Routine.SD.abundance.E.triacantha <- sd(RMT8.routine$Triacantha..assume.62.2..tr[RMT8.routine$Triacantha..assume.62.2..tr > 0])
+Routine.max.abundance.E.triacantha <- max(RMT8.routine$Triacantha..assume.62.2..tr[RMT8.routine$Triacantha..assume.62.2..tr > 0])
+Routine.min.abundance.E.triacantha <- min(RMT8.routine$Triacantha..assume.62.2..tr[RMT8.routine$Triacantha..assume.62.2..tr > 0])
+
+## Make a table:
+RMT8.abundances <- data.frame(Species = c("Trawl", "Detections","Max", "Min", "Mean", "Median", "SD"),
+                              `E. superba` = c("Routine (n=38)",
+                                               sprintf("%0.0f", RMT8.E.sup.routine[2, 2]),
+                                               sprintf("%0.2f", Routine.max.abundance.E.superba),
+                                               sprintf("%0.2f", Routine.min.abundance.E.superba),
+                                               sprintf("%0.2f", Routine.Mean.abundance.E.superba),
+                                               sprintf("%0.2f", Routine.Median.abundance.E.superba),
+                                               sprintf("%0.2f", Routine.SD.abundance.E.superba)),
+                              `T. macrura` = c("Routine (n=38)",
+                                               sprintf("%0.0f", RMT8.T.mac.routine[2, 2]),
+                                               sprintf("%0.2f", Routine.max.abundance.T.macrura),
+                                               sprintf("%0.2f", Routine.min.abundance.T.macrura),
+                                               sprintf("%0.2f", Routine.Mean.abundance.T.macrura),
+                                               sprintf("%0.2f", Routine.Median.abundance.T.macrura),
+                                               sprintf("%0.2f", Routine.SD.abundance.T.macrura)),
+                              `E. crystallorophias` = c("Routine (n=38)",
+                                                        sprintf("%0.0f", RMT8.E.cry.routine[2, 2]),
+                                                        sprintf("%0.2f", Routine.max.abundance.E.crystal),
+                                                        sprintf("%0.2f", Routine.min.abundance.E.crystal),
+                                                        sprintf("%0.2f", Routine.Mean.abundance.E.crystal),
+                                                        sprintf("%0.2f", Routine.Median.abundance.E.crystal),
+                                                        sprintf("%0.2f", Routine.SD.abundance.E.crystal)),
+                              `E. triacantha` = c("Routine (n=38)",
+                                                  sprintf("%0.0f", RMT8.E.tri.routine[2, 2]),
+                                                  sprintf("%0.2f", Routine.max.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Routine.min.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Routine.Mean.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Routine.Median.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Routine.SD.abundance.E.triacantha)),
+                              `E. superba` = c("Target (n=15)",
+                                               sprintf("%0.0f", RMT8.E.sup.target[2, 2]),
+                                               sprintf("%0.2f", Target.max.abundance.E.superba),
+                                               sprintf("%0.2f", Target.min.abundance.E.superba),
+                                               sprintf("%0.2f", Target.Mean.abundance.E.superba),
+                                               sprintf("%0.2f", Target.Median.abundance.E.superba),
+                                               sprintf("%0.2f", Target.SD.abundance.E.superba)),
+                               `T. macrura` = c("Target (n=15)",
+                                              sprintf("%0.0f", RMT8.T.mac.target[2, 2]),
+                                              sprintf("%0.2f", Target.max.abundance.T.macrura),
+                                              sprintf("%0.2f", Target.min.abundance.T.macrura),
+                                              sprintf("%0.2f", Target.Mean.abundance.T.macrura),
+                                              sprintf("%0.2f", Target.Median.abundance.T.macrura),
+                                              sprintf("%0.2f", Target.SD.abundance.T.macrura)),
+                              `E. crystallorophias` = c("Target (n=38)",
+                                                        sprintf("%0.0f", RMT8.E.cry.target[2, 2]),
+                                                        sprintf("%0.2f", Target.max.abundance.E.crystal),
+                                                        sprintf("%0.2f", Target.min.abundance.E.crystal),
+                                                        sprintf("%0.2f", Target.Mean.abundance.E.crystal),
+                                                        sprintf("%0.2f", Target.Median.abundance.E.crystal),
+                                                        sprintf("%0.2f", Target.SD.abundance.E.crystal)),
+                              `E. triacantha` = c("Target (n=38)",
+                                                  sprintf("%0.0f", RMT8.E.tria.target[2, 2]),
+                                                  sprintf("%0.2f", Target.max.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Target.min.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Target.Mean.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Target.Median.abundance.E.triacantha),
+                                                  sprintf("%0.2f", Target.SD.abundance.E.triacantha)))
+
+## write.csv(RMT8.abundances, "RMT8.abundances.csv", row.names = FALSE)
+
+```
+
+### Supplementary Table S7: RMT-1
+
+```{r count-RMT1-larval-detections}
+RMT1.E.sup <- RMT1 %>% count(E.superba.larvae > 0) ## 9/48 trawls detected E. superba larvae
+RMT1.T.mac <- RMT1 %>% count(T.macrura.larvae > 0) ## 29/48 trawls detected T. macrura larvae
+RMT1.Eupha <- RMT1 %>% count(Euphausiid.larvae > 0) ## 16/48 trawls detected other Euphausiid larvae
+
+Target.RMT1.E.sup <- RMT1.target %>% count(E.superba.larvae > 0) ## 9/48 trawls detected E. superba larvae
+Target.RMT1.T.mac <- RMT1.target %>% count(T.macrura.larvae > 0) ## 29/48 trawls detected T. macrura larvae
+Target.RMT1.Eupha <- RMT1.target %>% count(Euphausiid.larvae > 0) ## 16/48 trawls detected other Euphausiid larvae
+
+Routine.RMT1.E.sup <- RMT1.routine %>% count(E.superba.larvae > 0) ## 9/48 trawls detected E. superba larvae
+Routine.RMT1.T.mac <- RMT1.routine %>% count(T.macrura.larvae > 0) ## 29/48 trawls detected T. macrura larvae
+Routine.RMT1.Eupha <- RMT1.routine %>% count(Euphausiid.larvae > 0) ## 16/48 trawls detected other Euphausiid larvae
+
+Larvae <- c("E.superba.larvae", "T.macrura.larvae", "Euphausiid.larvae")
+
+## E. superba
+Mean.abundance.E.superba.1 <- mean(RMT1[, Larvae[1]][RMT1[, Larvae[1]] > 0]) ## 82.05593
+Median.abundance.E.superba.1 <- median(RMT1[, Larvae[1]][RMT1[, Larvae[1]] > 0]) ## 12.4225
+SD.abundance.E.superba.1 <- sd(RMT1[, Larvae[1]][RMT1[, Larvae[1]] > 0]) ## 138.3177
+max.abundance.E.superba.1 <- max(RMT1[, Larvae[1]][RMT1[, Larvae[1]] > 0]) ## 338.5949
+min.abundance.E.superba.1 <- min(RMT1[, Larvae[1]][RMT1[, Larvae[1]] > 0]) ## 0.9081856
+
+#T. macrura
+Mean.abundance.T.macrura.1 <- mean(RMT1[, Larvae[2]][RMT1[, Larvae[2]] > 0]) ## 234.1013
+Median.abundance.T.macrura.1 <- median(RMT1[, Larvae[2]][RMT1[, Larvae[2]] > 0]) ## 93.05608
+SD.abundance.T.macrura.1 <- sd(RMT1[, Larvae[2]][RMT1[, Larvae[2]] > 0]) ## 321.6655
+max.abundance.T.macrura.1 <- max(RMT1[, Larvae[2]][RMT1[, Larvae[2]] > 0]) ## 1173.974
+min.abundance.T.macrura.1 <- min(RMT1[, Larvae[2]][RMT1[, Larvae[2]] > 0]) ## 4.540928
+
+#Euphausiids
+Mean.abundance.Euphausiids <- mean(RMT1[, Larvae[3]][RMT1[, Larvae[3]] > 0]) ## 97.01558
+Median.abundance.Euphausiids <- median(RMT1[, Larvae[3]][RMT1[, Larvae[3]] > 0]) ## 56.66976
+SD.abundance.Euphausiids <- sd(RMT1[, Larvae[3]][RMT1[, Larvae[3]] > 0]) ## 149.8295
+max.abundance.Euphausiids <- max(RMT1[, Larvae[3]][RMT1[, Larvae[3]] > 0]) ## 616.5473
+min.abundance.Euphausiids <- min(RMT1[, Larvae[3]][RMT1[, Larvae[3]] > 0]) ## 1.051017
+
+## Make a table:
+RMT1.abundances.combined <- data.frame(Species = c("Detections","Max", "Min", "Mean", "Median", "SD"),
+                                       `E. superba` = c(sprintf("%0.0f", RMT1.E.sup[2, 2]),
+                                                        sprintf("%0.2f", max.abundance.E.superba.1),
+                                                        sprintf("%0.2f", min.abundance.E.superba.1),
+                                                        sprintf("%0.2f", Mean.abundance.E.superba.1),
+                                                        sprintf("%0.2f", Median.abundance.E.superba.1),
+                                                        sprintf("%0.2f", SD.abundance.E.superba.1)),
+                                       `T. macrura` = c(sprintf("%0.0f", RMT1.T.mac[2, 2]),
+                                                        sprintf("%0.2f", max.abundance.T.macrura.1),
+                                                        sprintf("%0.2f", min.abundance.T.macrura.1),
+                                                        sprintf("%0.2f", Mean.abundance.T.macrura.1),
+                                                        sprintf("%0.2f", Median.abundance.T.macrura.1),
+                                                        sprintf("%0.2f", SD.abundance.T.macrura.1)),
+                                       Euphausiids = c(sprintf("%0.0f", RMT1.Eupha[2, 2]),
+                                                       sprintf("%0.2f", max.abundance.Euphausiids),
+                                                       sprintf("%0.2f", min.abundance.Euphausiids),
+                                                       sprintf("%0.2f", Mean.abundance.Euphausiids),
+                                                       sprintf("%0.2f", Median.abundance.Euphausiids),
+                                                       sprintf("%0.2f", SD.abundance.Euphausiids)))
+
+## write.csv(RMT1.abundances.combined, "RMT1.abundances.combined.csv", row.names = FALSE)
+
+## TARGET
+
+## E. superba
+Target.Mean.abundance.E.superba.1 <- mean(RMT1.target[, Larvae[1]][RMT1.target[, Larvae[1]] > 0])
+Target.Median.abundance.E.superba.1 <- median(RMT1.target[, Larvae[1]][RMT1.target[, Larvae[1]] > 0])
+Target.SD.abundance.E.superba.1 <- sd(RMT1.target[, Larvae[1]][RMT1.target[, Larvae[1]] > 0])
+Target.max.abundance.E.superba.1 <- max(RMT1.target[, Larvae[1]][RMT1.target[, Larvae[1]] > 0])
+Target.min.abundance.E.superba.1 <- min(RMT1.target[, Larvae[1]][RMT1.target[, Larvae[1]] > 0])
+
+## T. macrura
+Target.Mean.abundance.T.macrura.1 <- mean(RMT1.target[, Larvae[2]][RMT1.target[, Larvae[2]] > 0])
+Target.Median.abundance.T.macrura.1 <- median(RMT1.target[, Larvae[2]][RMT1.target[, Larvae[2]] > 0])
+Target.SD.abundance.T.macrura.1 <- sd(RMT1.target[, Larvae[2]][RMT1.target[, Larvae[2]] > 0])
+Target.max.abundance.T.macrura.1 <- max(RMT1.target[, Larvae[2]][RMT1.target[, Larvae[2]] > 0])
+Target.min.abundance.T.macrura.1 <- min(RMT1.target[, Larvae[2]][RMT1.target[, Larvae[2]] > 0])
+
+## Euphausiids
+Target.Mean.abundance.Euphausiids <- mean(RMT1.target[, Larvae[3]][RMT1.target[, Larvae[3]] > 0])
+Target.Median.abundance.Euphausiids <- median(RMT1.target[, Larvae[3]][RMT1.target[, Larvae[3]] > 0])
+Target.SD.abundance.Euphausiids <- sd(RMT1.target[, Larvae[3]][RMT1.target[, Larvae[3]] > 0])
+Target.max.abundance.Euphausiids <- max(RMT1.target[, Larvae[3]][RMT1.target[, Larvae[3]] > 0])
+Target.min.abundance.Euphausiids <- min(RMT1.target[, Larvae[3]][RMT1.target[, Larvae[3]] > 0])
+
+## Routine
+
+## E.superba
+Routine.Mean.abundance.E.superba.1 <- mean(RMT1.routine[, Larvae[1]][RMT1.routine[, Larvae[1]] > 0])
+Routine.Median.abundance.E.superba.1 <- median(RMT1.routine[, Larvae[1]][RMT1.routine[, Larvae[1]] > 0])
+Routine.SD.abundance.E.superba.1 <- sd(RMT1.routine[, Larvae[1]][RMT1.routine[, Larvae[1]] > 0])
+Routine.max.abundance.E.superba.1 <- max(RMT1.routine[, Larvae[1]][RMT1.routine[, Larvae[1]] > 0])
+Routine.min.abundance.E.superba.1 <- min(RMT1.routine[, Larvae[1]][RMT1.routine[, Larvae[1]] > 0])
+
+## T. macrura
+Routine.Mean.abundance.T.macrura.1 <- mean(RMT1.routine[, Larvae[2]][RMT1.routine[, Larvae[2]] > 0])
+Routine.Median.abundance.T.macrura.1 <- median(RMT1.routine[, Larvae[2]][RMT1.routine[, Larvae[2]] > 0])
+Routine.SD.abundance.T.macrura.1 <- sd(RMT1.routine[, Larvae[2]][RMT1.routine[, Larvae[2]] > 0])
+Routine.max.abundance.T.macrura.1 <- max(RMT1.routine[, Larvae[2]][RMT1.routine[, Larvae[2]] > 0])
+Routine.min.abundance.T.macrura.1 <- min(RMT1.routine[, Larvae[2]][RMT1.routine[, Larvae[2]] > 0])
+
+## Euphausiids
+Routine.Mean.abundance.Euphausiids <- mean(RMT1.routine[, Larvae[3]][RMT1.routine[, Larvae[3]] > 0])
+Routine.Median.abundance.Euphausiids <- median(RMT1.routine[, Larvae[3]][RMT1.routine[, Larvae[3]] > 0])
+Routine.SD.abundance.Euphausiids <- sd(RMT1.routine[, Larvae[3]][RMT1.routine[, Larvae[3]] > 0])
+Routine.max.abundance.Euphausiids <- max(RMT1.routine[, Larvae[3]][RMT1.routine[, Larvae[3]] > 0])
+Routine.min.abundance.Euphausiids <- min(RMT1.routine[, Larvae[3]][RMT1.routine[, Larvae[3]] > 0])
+
+## Make a table:
+RMT1.abundances <- data.frame(Species = c("Detections","Max", "Min", "Mean", "Median", "SD"),
+                              `E. superba` = c(sprintf("%0.0f", Routine.RMT1.E.sup[2, 2]),
+                                               sprintf("%0.2f", Routine.max.abundance.E.superba.1),
+                                               sprintf("%0.2f", Routine.min.abundance.E.superba.1),
+                                               sprintf("%0.2f", Routine.Mean.abundance.E.superba.1),
+                                               sprintf("%0.2f", Routine.Median.abundance.E.superba.1),
+                                               sprintf("%0.2f", Routine.SD.abundance.E.superba.1)),
+                              `T. macrura` = c(sprintf("%0.0f", Routine.RMT1.T.mac[2, 2]),
+                                               sprintf("%0.2f", Routine.max.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Routine.min.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Routine.Mean.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Routine.Median.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Routine.SD.abundance.T.macrura.1)),
+                              Euphausiids = c(sprintf("%0.0f", Routine.RMT1.Eupha[2, 2]),
+                                              sprintf("%0.2f", Routine.max.abundance.Euphausiids),
+                                              sprintf("%0.2f", Routine.min.abundance.Euphausiids),
+                                              sprintf("%0.2f", Routine.Mean.abundance.Euphausiids),
+                                              sprintf("%0.2f", Routine.Median.abundance.Euphausiids),
+                                              sprintf("%0.2f", Routine.SD.abundance.Euphausiids)),
+                              `E. superba` = c(sprintf("%0.0f", Target.RMT1.E.sup[2, 2]),
+                                               sprintf("%0.2f", Target.max.abundance.E.superba.1),
+                                               sprintf("%0.2f", Target.min.abundance.E.superba.1),
+                                               sprintf("%0.2f", Target.Mean.abundance.E.superba.1),
+                                               sprintf("%0.2f", Target.Median.abundance.E.superba.1),
+                                               sprintf("%0.2f", Target.SD.abundance.E.superba.1)),
+                              `T. macrura` = c(sprintf("%0.0f", Target.RMT1.T.mac[2, 2]),
+                                               sprintf("%0.2f", Target.max.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Target.min.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Target.Mean.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Target.Median.abundance.T.macrura.1),
+                                               sprintf("%0.2f", Target.SD.abundance.T.macrura.1)),
+                              Euphausiids = c(sprintf("%0.0f", Target.RMT1.Eupha[2, 2]),
+                                              sprintf("%0.2f", Target.max.abundance.Euphausiids),
+                                              sprintf("%0.2f", Target.min.abundance.Euphausiids),
+                                              sprintf("%0.2f", Target.Mean.abundance.Euphausiids),
+                                              sprintf("%0.2f", Target.Median.abundance.Euphausiids),
+                                              sprintf("%0.2f", Target.SD.abundance.Euphausiids)))
+
+## write.csv(RMT1.abundances, "RMT1.abundances.csv", row.names = FALSE)
+
+
+```
+
+## Compare to eDNA
+
+### Figure 5E: compare RMT8, RMT1 and eDNA krill detections
+
+```{r both-trawls-vs-eDNA}
+trawl.columns.larvae <- c("E.superba.calyptopsis.I.tr", "E.superba.furcilia.II.tr",
+                          "E.superba.furcilia.II.1.tr", "E.superba.late.stage.furcilia.tr",
+                          "T.macrura.calyptopsis.I.tr", "T.macrura.calypopsis.II.tr",
+                          "T.macrura.calyptopsis.III.tr", "T.macrura.late.furcilia.tr",
+                          "T.macrura.furcilia.I.tr", "T.macrura.furcilia.II.tr",
+                          "T.macrura.furcilia.III.tr", "T.macrura.furcilia.IV.tr",
+                          "T.macrura.furcilia.V.tr", "T.macrura.furcilia.VI.tr",
+                          "Euphausiid.calyptopsis.tr" , "Euphausiid.calyptopsis.I.tr",
+                          "Euphausiid.calyptopsis.II.tr", "Euphausiid.furcilia.tr",
+                          "Euphausiid.furcilia.I.tr")
+
+trawls.eDNA <- subset(eDNA.CTDs, Sample %in% unique(c(RMT8$Sample, RMT1$Sample)))
+trawls.eDNA$E.superba.larvae <- rowSums(trawls.eDNA[, trawl.columns.larvae[1:4]])
+trawls.eDNA$T.macrura.larvae <- rowSums(trawls.eDNA[, trawl.columns.larvae[5:14]])
+trawls.eDNA$Euphausiid.larvae <- rowSums(trawls.eDNA[, trawl.columns.larvae[15:19]])
+
+## Subset where only stations that have both RMT1 AND RMT8 data are present are included
+trawls.eDNA2 <- subset(trawls.eDNA, !is.na(E.superba.larvae) & !is.na(E.superba.estimate.tr))
+
+## calculate values for euler diagram with overlap of eDNA detections with RMT1 AND RMT8, only for locations that have all three data streams collected:
+
+trawls.eDNA2$Cop.Corr.R1[is.na(trawls.eDNA2$Cop.Corr.R1)] <- 0
+
+eDNA.only2 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae == 0 & trawls.eDNA2$E.superba.estimate.tr == 0])
+RMT1.only2 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae > 0 & trawls.eDNA2$E.superba.estimate.tr == 0 & trawls.eDNA2$Cop.Corr.R1 == 0])
+RMT8.only2 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae == 0 & trawls.eDNA2$E.superba.estimate.tr > 0 & trawls.eDNA2$Cop.Corr.R1 == 0])
+eDNA.RMT12 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae > 0 & trawls.eDNA2$E.superba.estimate.tr == 0 & trawls.eDNA2$Cop.Corr.R1 > 0])
+eDNA.RMT82 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae == 0 & trawls.eDNA2$E.superba.estimate.tr > 0 & trawls.eDNA2$Cop.Corr.R1 > 0])
+RMT1.RMT82  <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae > 0 & trawls.eDNA2$E.superba.estimate.tr > 0 & trawls.eDNA2$Cop.Corr.R1 == 0])
+eDNA.RMT8.RMT12 <- length(trawls.eDNA2$Sample[trawls.eDNA2$E.superba.larvae > 0 & trawls.eDNA2$E.superba.estimate.tr > 0 & trawls.eDNA2$Cop.Corr.R1 > 0])
+
+Figure5E <- plot(euler(c(eDNA = eDNA.only2, RMT8 = RMT8.only2, RMT1 = RMT1.only2,
+                         "eDNA&RMT8" = eDNA.RMT82, "eDNA&RMT1" = eDNA.RMT12, "RMT8&RMT1" = RMT1.RMT82,  "eDNA&RMT8&RMT1" = eDNA.RMT8.RMT12)),
+                 quantities = TRUE, legend = TRUE, fills = list(fill = c("white", "olivedrab", "gold1"), alpha = 0.8))
+
+```
+
+### Figure5F: RMT8
+
+```{r RMT8-vs-eDNA}
+## RMT8: overlapping dataset with eDNA
+
+RMT8.eDNA <- subset(RMT8, !is.na(RMT8$Sample))
+
+Figure5F <- ggplot(RMT8.eDNA[!is.na(RMT8.eDNA$E.superba.estimate.tr) & RMT8.eDNA$E.superba.estimate.tr != 0, ],
+                   aes(x = log(E.superba.estimate.tr), fill = class.strict, y = L1)) +
+    geom_point(shape = 21, size = 3) +
+    scale_fill_manual(values = c(age_manual_colours, "eDNA no krill" ="grey40")) +
+    labs(x = "Log(RMT8 E. superba density)", y = "Log(copies, short marker)", fill = "eDNA age") +
+    xlim(c(-2, 9)) + ylim(c(0, 8)) +
+    theme_bw()
+
+model.eDNA.trawl <- lm(log(E.superba.estimate.tr) ~ L1 + class.strict + trawltype.tr,
+                       data = RMT8.eDNA[!is.na(RMT8.eDNA$E.superba.estimate.tr) & RMT8.eDNA$E.superba.estimate.tr != 0 , ])
+
+plot(model.eDNA.trawl)
+summary(model.eDNA.trawl)
+anova(model.eDNA.trawl)
+
+## Note: the relationship of eDNA quantity in relation to trawl density would be interesting to test - however, this would be most interesting at target trawl locations, i.e. where krill swarms were detected and sampled. There is very little overlap of target trawl locations and eDNA data (3 samples), so this cannot be tested here
+
+```
+
+### Figure 5G: RMT1
+
+```{r RMT1-vs-eDNA}
+## RMT1: overlapping dataset with eDNA
+
+RMT1.eDNA <- subset(RMT1, !is.na(RMT1$Sample))
+
+Figure5G <- ggplot(RMT1.eDNA[!is.na(RMT1.eDNA$E.superba.larvae) & RMT1.eDNA$E.superba.larvae != 0, ],
+                   aes(x = log(E.superba.larvae), fill = class.strict, y = L1)) +
+    geom_point(shape = 21, size = 3) +
+    scale_fill_manual(values = c(age_manual_colours, "eDNA no krill" ="grey40")) +
+    labs(x = "Log(RMT1 E. superba density)", y = "Log(copies, short marker)", fill = "eDNA age") +
+    xlim(c(-2, 9)) + ylim(c(0, 8)) +
+    theme_bw()
+
+legend.5F <- get_legend(Figure5F)
+
+Figure5FG.noleg <- plot_grid(Figure5F + theme(legend.position = "none"),
+                             NULL,
+                             Figure5G + theme(legend.position = "none"),
+                             NULL,
+                             ncol= 2, rel_widths = c(1, 0.1), labels = c("", "F", "", "G"))
+
+Figure5FG <- plot_grid(Figure5FG.noleg, legend.5F, ncol = 2, rel_widths = c(1.1, 0.6))
+
+```
+
+### Assemble Figure 5
+
+```{r assemble-fig-5}
+Figure5EFG <- plot_grid(Figure5E, Figure5FG, nrow = 1, labels = c("E", ""), rel_widths = c(1, 1.7))
+
+Figure5 <- plot_grid(Figure5ABCD, Figure5EFG, nrow = 2, rel_heights = c(2, 1))
+
+## jpeg(filename = "Figure5.jpg", width = 4500, height = 4500, units = "px", quality = 100, res = 300)
+if (save_figs) png(filename = "Figure5.png", width = 4500, height = 4500, res = 300)
+print(Figure5)
+if (save_figs) dev.off()
+
+```
+
+
+# Krill faecal pellet and moult sinking rates
+
+```{r sinking-rates}
+## faecal sinking rates:
+
+## 27 – 1218 m d-1, median 304 m d−1
+
+## How long does it take to reach 3000 m depth?
+## 27 m d-1:
+
+poo.3000.slow <- 3000/27 ## 111 days
+poo.3000.long <- 3000/1218 ## 2.46 days
+poo.3000.median <- 3000/304 ## 9.87 days
+
+## moult sinking rates:
+
+## 0.06 to 1.18 cm s−1, mean 0.78 cm s-1
+
+moult.per.day.slow <- 0.06 / 100 * 60 * 60 * 24 ## 51.84 m d-1
+moult.per.day.fast <- 1.18 / 100 * 60 * 60 * 24 ## 1019.52 m d-1
+moult.per.day.mean <- 0.78 / 100 * 60 * 60 * 24 ## 673.92 m d-1
+
+## Time to 3000 m depth
+moult.3000.slow <- 3000 / moult.per.day.slow ## 57.87 days
+moult.3000.long <- 3000 / moult.per.day.fast ## 2.94 days
+moult.3000.mean <- 3000 / moult.per.day.mean ## 4.45 days
+
+```

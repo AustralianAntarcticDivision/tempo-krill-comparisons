@@ -1,0 +1,125 @@
+Sample number,Sample,Bottle number,Sampling time UTC,Date,Latitude,Longitude,Sampling method ,Sampling type,Sampling depth,CTD depth,seawater temperature,sea ice ,Filter halved ,Filtering time UTC,Storage boxes,Collectors,Comments,Time between filtering and sampling,Time.between.decimal,Percent of 5 Litres,CTD number,CTD category
+47,047A,3,13:41,13/02/2021,-65.525,55.05,CTD,CTD 02,5,top,-1.5,Ice edge (2 nm),AB,17:35,1A+1B,Liv/Liss/Christine/Mads,"Lat entered as -65.31.47, Lon entered as 55.03",3:54,3.9,1,2,2 top
+48,048A,5,12.55,13/02/2021,-65.525,55.05,CTD,CTD 02,960,bottom,-1.5,Ice edge (2 nm),AB,17:35,1A+1B,Liv/Liss/Christine/Mads,"Lat entered as -65.31.47, Lon entered as 55.02.99",4:23,4.38,1,2,2 bottom
+49,049A,1,0:00,13/02/2021,-65.006,55.001,CTD,CTD 03,5,top,-0.03,No,AB,8:09,1A+1B,Liv/Christine/night shift,,8:09,8.15,1,3,3 top
+50,050A,5,,,,,,MilliQ,,,,,AB,8:09,1A+1B,Liv/Christine,"2L, some rust from scissors may contaminated??",8:09,8.15,0.4,, 
+51,051A,2,22:03,13/02/2021,-65.006,55.001,CTD,CTD 03,3700,bottom,-0.3,No,AB,8:40,1A+1B,Liv/Christine,,10:37,10.62,1,3,3 bottom
+52,052A,6,7:17,14/02/2021,-64.501,55,CTD,CTD 04,4350,bottom,-0.4,No,AB,13:18,1A+1B,Liv/Christine,,6:01,6.02,1,4,4 bottom
+53,053A,3,8:39,14/02/2021,-64.501,55.001,CTD,CTD 04,5,top,0.1,No,AB,13:18,1A+1B,Liv/Christine,,4:39,4.65,1,4,4 top
+54,054A,5,2:34,18/02/2021,-63.485,60.015,CTD,CTD 11,4422,bottom,-0.36,No,AB,7:47,1A+1B,Christine/Liv/Liss,,5:13,5.22,1,11,11 bottom
+55,055A,2,4:23,18/02/2021,-63.48117,60.02933,CTD,CTD 11,5,top,1.35,No,AB,7:47,1A+1B,Christine/Liv/Liss,,3:24,3.4,1,11,11 top
+56,056A,4,10:57,18/02/2021,-64.00288,60.0049,CTD,CTD 12,4327,bottom,-0.38,No,AB,16:16,1A+1B,Christine/Liv/Liss,"Paper dropped on bench, sample A",5:19,5.32,1,12,12 bottom
+57,057A,3,13:04,18/02/2021,-63.99982,59.99707,CTD,CTD 12,5,top,-0.58,No,AB,16:16,1A+1B,Christine/Liv/Liss,,3:12,3.2,1,12,12 top
+58,058A,1,20:10,18/02/2021,-64.49935,59.99935,CTD,CTD 13,4300,bottom,-0.38,No,AB,10:29,1A+1B,Mad/Jess/Liv,,14:19,14.32,1,13,13 bottom
+59,059A,6,21:59,18/02/2021,-64.49935,59.99935,CTD,CTD 13,5,top,0.31,No,AB,10:29,1A+1B,Mad/Jess/Liv,,12:30,12.5,1,13,13 top
+60,060A,2,,19/02/2021,,,,MilliQ,,,,,AB,16:14,1A+1B,Liv,,16:14,16.23,1,, 
+61,061A,8,6:36,19/02/2021,-64.99938,60.01367,CTD,CTD 14,4120,bottom,-0.36,No,AB,16:44,1A+1B,Liv,,10:08,10.13,1,14,14 bottom
+62,062A,7,8:51,19/02/2021,-65.00067,60.01283,CTD,CTD 14,5,top,0.06,No,AB,16:44,1A+1B,Liv,,7:53,7.88,1,14,14 top
+64,064A,3,17:04,19/02/2021,-65.52035,59.97708,CTD,CTD 15,10,top,-0.86,No,AB,2:30,1A+1B,Mad,Bottle got switched so corrected,9:26,9.43,1,15,15 top
+63,063A,2,15:07,19/02/2021,-65.51035,59.98467,CTD,CTD 15,3870,bottom,-0.31,No,AB,2:30,1A+1B,Mad,,11:23,11.38,1,15,15 bottom
+65,065A,7,2:10,20/02/2021,-65.94447,59.98118,CTD,CTD 16,5,top,-1.34,No,AB,9:50,1A+1B,Jed/Dez,,7:40,7.67,1,16,16 top
+66,066A,8,0:45,20/02/2021,-65.93992,59.97225,CTD,CTD 16,3050,bottom,-0.27,No,AB,9:50,1A+1B,Jed/Dez,Half filter paper dropped. Good half cut in two.,9:05,9.08,1,16,16 bottom
+67,067A,6,9:38,20/02/2021,-66.24997,60.24897,CTD,CTD 17,2790,bottom,-0.25,No,AB,0:50,1A+1B,Derek,,15:12,15.2,1,17,17 bottom
+68,068A,3,11:11,20/02/2021,-66.25182,60.2457,CTD,CTD 17,5,top,-1.59,No,AB,0:50,1A+1B,Derek,,13:39,13.65,1,17,17 top
+69,069A,2,13:52,20/02/2021,-66.40013,60.2512,CTD,CTD 18,2265,bottom,-0.23,No,AB,15:50,1A+1B,Derek,,1:58,1.97,1,18,18 bottom
+70,070A,?,,21/02/2021,,,,MilliQ,,,,,AB,14:55,1A+1B,Derek,4 samples as ran both filters and halved,14:55,14.92,1,, 
+71,071A,1,15:32,20/02/2021,-66.40185,60.249,CTD,CTD 18,5,top,-1.66,No,AB,15:50,1A+1B,Derek,,0:18,0.3,1,18,18 top
+72,072A,4,20:28,20/02/2021,-66.55722,60.24808,CTD,CTD 19,5,top,-1.63,No,AB,0:40,1A+1B,Derek,Training Soph and Andreas,4:12,4.2,1,19,19 top
+73,073A,11,19:33,20/02/2021,-66.55692,60.2459,CTD,CTD 19,1600,bottom,0.0106,No,AB,0:40,1A+1B,Derek,,5:07,5.12,1,19,19 bottom
+74,074A,8,10:44,21/02/2021,-66.56573,62.06278,CTD,CTD 20,850,bottom,0.1108,No,AB,2:10,1A+1B,Andreas,First eDNA run,15:26,15.43,1,20,20 bottom
+75,075A,7,11:12,21/02/2021,-66.56572,62.06277,CTD,CTD 20,5,top,-1.5845,No,AB,2:10,1A+1B,Andreas,,14:58,14.97,1,20,20 top
+76,076A,6,14:46,21/02/2021,-66.52453,62.44553,CTD,CTD 21,1471,bottom,-0.0359,No,AB,4:45,1A+1B,AK/SB,,13:59,13.98,1,21,21 bottom
+77,077A,3,15:25,21/02/2021,-66.52372,62.44542,CTD,CTD 21,8,top,-1.5031,No,AB,4:45,1A+1B,AK/SB,,13:20,13.33,1,21,21 top
+78,078A,2,12:54,23/02/2021,-66.55385,65.01467,CTD,CTD 22,2290,bottom,-0.376,No,AB,17:47,1A+1B,Maddie,ice edge,4:53,4.88,1,22,22 bottom
+79,079A,7,14:24,23/02/2021,-66.55453,65.0077,CTD,CTD 22,5,top,-1.5214,No,AB,17:47,1A+1B,Maddie,ice edge,3:23,3.38,1,22,22 top
+80,080A,11,,23/02/2021,,,,MilliQ,,,,,AB,18:26,1A+1B,Maddie,,18:26,18.43,1,, 
+81,081A,8,17:40,23/02/2021,-66.40077,65.00183,CTD,CTD 23,2190,bottom,-0.3518,No,AB,19:55,1A+1B,Maddie,,2:15,2.25,1,23,23 bottom
+82,082A,1,18:38,23/02/2021,-66.40008,65.00268,CTD,CTD 23,5,top,-1.5154,No,AB,19:55,1A+1B,Maddie,,1:17,1.28,1,23,23 top
+83,083A,7,23:09,23/02/2021,-66.25042,64.99917,CTD,CTD 24,2500,bottom,-0.92,No,AB,3:15,1A+1B,Maddie,,4:06,4.1,1,24,24 bottom
+84,084A,2,0:14,24/02/2021,-66.25328,64.9954,CTD,CTD 24,5,top,-1.28,No,AB,3:15,1A+1B,Maddie,,3:01,3.02,1,24,24 top
+85,085A,11,6:31,24/02/2021,-65.98283,65.00278,CTD,CTD 25,3080,bottom,-0.3,No,AB,14:30,1A+1B,Derek,,7:59,7.98,1,25,25 bottom
+86,086A,8,8:10,24/02/2021,-65.9993,65.00373,CTD,CTD 25,5,top,-1.1,No,AB,14:30,1A+1B,Derek,,6:20,6.33,1,25,25 top
+87,087A,2,13:27,24/02/2021,-65.49958,64.92705,CTD,CTD 26,2725,bottom,-0.3,No,AB,18:20,1A+1B,Maddie,,4:53,4.88,1,26,26 bottom
+88,088A,1,15:11,24/02/2021,-65.50067,64.98533,CTD,CTD 26,5,top,-0.8,No,AB,18:20,1A+1B,Maddie,lat written as -66 in notes,3:09,3.15,1,26,26 top
+89,089A,10,23:24,24/02/2021,-64.99983,65.00052,CTD,CTD 27,5,top,-0.5,No,AB,5:30,1A+1B,Derek/Jez,,6:06,6.1,1,27,27 top
+90,090A,11,,24/02/2021,,,,MilliQ,,,,,AB,6:16,2A+2B,Derek/Jez,,6:16,6.27,1,, 
+91,091A,5,21:58,24/02/2021,-65.00152,65.0002,CTD,CTD 27,3200,bottom,-0.19,No,AB,6:56,2A+2B,Derek/Jez,,8:58,8.97,1,27,27 bottom
+92,092A,7,12:52,25/02/2021,-64.5,65.00085,CTD,CTD 28,3897,bottom,-0.2,No,AB,17:37,2A+2B,Maddie,delayed getting sample into freezer for a few hours,4:45,4.75,1,28,28 bottom
+93,093A,4,14:59,25/02/2021,-64.50013,64.99745,CTD,CTD 28,5,top,0.12,No,AB,17:37,2A+2B,Maddie,delayed getting sample into freezer for a few hours,2:38,2.63,1,28,28 top
+94,094A,11,23:56,25/02/2021,-64.00015,64.99983,CTD,CTD 29,5,top,0.27,No,AB,2:36,2A+2B,Maddie,,2:40,2.67,1,29,29 top
+95,095A,1,22:15,25/02/2021,-64.0007,64.99752,CTD,CTD 29,4080,bottom,-0.2,No,AB,2:36,2A+2B,Maddie,,4:21,4.35,1,29,29 bottom
+96,096A,7,7:30,28/02/2021,-62.83295,70.00108,CTD,CTD 34,4081,bottom,-0.17,No,AB,11:44,2A+2B,Christine/Liv/Liss,WD40 was sprayed in the CTD room when sample taben & 10 day old bleach used for cleaning,4:14,4.23,1,34,34 bottom
+97,097A,4,9:42,28/02/2021,-62.83217,70.00105,CTD,CTD 34,15,top,0.9,No,AB,11:23,2A+2B,Christine/Liv/Liss,WD40 was sprayed in the CTD room when sample taben & 10 day old bleach used for cleaning,1:41,1.68,1,34,34 top
+98,098A,1,14:10,28/02/2021,-63.16703,69.99898,CTD,CTD 35,3993,bottom,-0.18,No,AB,17:45,2A+2B,Jess/Mads,,3:35,3.58,1,35,35 bottom
+99,099A,10,16:12,28/02/2021,-63.16692,70.00027,CTD,CTD 35,15,top,0.42,No,AB,17:45,2A+2B,Jess/Mads,,1:33,1.55,1,35,35 top
+100,100A,11,,28/02/2021,,,,MilliQ,,,,,AB,?,2A+2B,Jess/Mads,,,0,1,, 
+101,101A,4,21:23,28/02/2021,-63.49965,70.00285,CTD,CTD 36,3700,bottom,-0.08,No,AB,1:00,2A+2B,Maddie,3.5 L filtered,3:37,3.62,0.7,36,36 bottom
+102,102A,10,22:55,28/02/2021,-63.49792,69.9964,CTD,CTD 36,15,top,0.015,No,AB,1:00,2A+2B,Maddie,,2:05,2.08,1,36,36 top
+103,103A,8,6:13,1/03/2021,-63.96712,70.00163,CTD,CTD 37,3520,bottom,-0.13,No,AB,19:50,2A+2B,Maddie,,13:37,13.62,1,37,37 bottom
+104,104A,2,8:07,1/03/2021,-63.97543,70.01028,CTD,CTD 37,10,top,-0.05,No,AB,19:50,2A+2B,Maddie,,11:43,11.72,1,37,37 top
+105,105A,11,14:15,1/03/2021,-64.21618,69.99623,CTD,CTD 38,3392,bottom,-0.1,No,AB,20:30,2A+2B,Maddie,,6:15,6.25,1,38,38 bottom
+106,106A,3,16:05,1/03/2021,-64.21663,70.00098,CTD,CTD 38,5,top,-0.11,No,AB,20:30,2A+2B,Maddie,,4:25,4.42,1,38,38 top
+107,107A,8,21:45,1/03/2021,-64.41675,69.9529,CTD,CTD 39,3383,bottom,-0.11,No,AB,1:40,2A+2B,Maddie,filtered on 2/3/21 UTC,3:55,3.92,1,39,39 bottom
+108,108A,2,23:09,1/03/2021,-64.41682,69.9493,CTD,CTD 39,5,top,-0.04,No,AB,1:40,2A+2B,Maddie,filtered on 2/3/21 UTC,2:31,2.52,1,39,39 top
+109,109A,10,2:42,2/03/2021,-64.566,69.99958,CTD,CTD 40,3300,bottom,-0.13,No,AB,7:38,2A+2B,Christine/Liv,,4:56,4.93,1,40,40 bottom
+110,110A,6,,2/03/2021,,,,MilliQ,,,,,AB,7:38,2A+2B,Christine/Liv,,7:38,7.63,1,, 
+111,111A,4,3:57,2/03/2021,-64.5655,70.00038,CTD,CTD 40,5,top,0.32,No,AB,8:31,2A+2B,Christine/Liv,4.5 L filtered,4:34,4.57,0.9,40,40 top
+112,112A,11,7:14,2/03/2021,-64.76607,70.0005,CTD,CTD 41,3225,bottom,-0.17,No,AB,10:33,2A+2B,Liv,,3:19,3.32,1,41,41 bottom
+113,113A,3,9:14,2/03/2021,-64.76575,70.00223,CTD,CTD 41,5,top,-0.0001,No,AB,10:33,2A+2B,Liv,4 L filtered in 1 hour,1:19,1.32,0.8,41,41 top
+114,114A,10,13:46,2/03/2021,-65.01723,69.99827,CTD,CTD 42,2880,bottom,-0.02,No,AB,17:00,2A+2B,Maddie,,3:14,3.23,1,42,42 bottom
+115,115A,2,15:21,2/03/2021,-65.01688,70.00062,CTD,CTD 42,5,top,-0.37,No,AB,17:00,2A+2B,Maddie,2.5 L filtered in 40 minutes,1:39,1.65,0.5,42,42 top
+116,116A,3,19:52,2/03/2021,-65.33283,69.99967,CTD,CTD 43,2790,bottom,-0.52,No,AB,23:40,2A+2B,Maddie,,3:48,3.8,1,43,43 bottom
+117,117A,6,21:13,2/03/2021,-65.33278,69.99915,CTD,CTD 43,5,top,-0.54,No,AB,23:40,2A+2B,Maddie,,2:27,2.45,1,43,43 top
+118,118A,10,3:16,3/03/2021,-65.667,69.9995,CTD,CTD 44,2691,bottom,-0.3,No,AB,9:13,2A+2B,Liv,,5:57,5.95,1,44,44 bottom
+119,119A,11,4:38,3/03/2021,-65.66667,70.00133,CTD,CTD 44,5,top,-0.7,No,AB,9:13,2A+2B,Liv,,4:35,4.58,1,44,44 top
+120,120A,2,,3/03/2021,,,,MilliQ,,,,,AB,12:57,2A+2B,Liv,,12:57,12.95,1,, 
+121,121A,1,10:10,3/03/2021,-65.91783,69.99233,CTD,CTD 45,2489,bottom,-0.35,No,AB,13:33,2A+2B,Liv,,3:23,3.38,1,45,45 bottom
+122,122A,7,11:33,3/03/2021,-65.91767,69.99233,CTD,CTD 45,12,top,-0.75,No,AB,12:54,2A+2B,Liv,4L filtered in 50 mins,1:21,1.35,0.8,45,45 top
+123,123A,6,14:43,3/03/2021,-66.07045,70.0009,CTD,CTD 46,2437,bottom,-0.74,No,AB,17:07,2A+2B,Maddie/Jess,,2:24,2.4,1,46,46 bottom
+124,124A,3,16:07,3/03/2021,-66.07165,69.99328,CTD,CTD 46,10,top,-0.75,No,AB,17:07,2A+2B,Maddie/Jess,3.5L filtered in 50 mins,1:00,1,0.7,46,46 top
+125,125A,1,2:40,5/03/2021,-67.99742,74.99333,CTD,CTD 47,480,bottom,-1.88,Yes,AB,17:30,2A+2B,Maddie,Ice present,14:50,14.83,1,47,47 bottom
+126,126A,10,3:04,5/03/2021,-67.99422,74.99377,CTD,CTD 47,5,top,-1.19,Yes,AB,17:30,2A+2B,Maddie,"Ice present, 4.5 L filtered",14:26,14.43,0.9,47,47 top
+127,127A,4,9:08,5/03/2021,-67.674,74.64737,CTD,CTD 48,473,bottom,-1.89,Yes,AB,18:20,2A+2B,Maddie,Ice present,9:12,9.2,1,48,48 bottom
+128,128A,11,9:39,5/03/2021,-67.67687,74.64172,CTD,CTD 48,5,top,-1.11,Yes,AB,18:20,2A+2B,Maddie,"Ice present, 3 L",8:41,8.68,0.6,48,48 top
+129,129A,2,15:10,5/03/2021,-67.3339,74.5898,CTD,CTD 49,5,top,-0.98,Yes,AB,18:50,2A+2B,Maddie,"Ice present, filter dropped but onto bleached/milliQ'd surface",3:40,3.67,1,49,49 top
+130,130A,7,,5/03/2021,,,,MilliQ,,,,,AB,18:50,2A+2B,Maddie,,18:50,18.83,1,, 
+131,131A,8,14:12,5/03/2021,-67.33237,74.59232,CTD,CTD 49,445,bottom,-1.87,Yes,AB,19:20,2A+2B,Maddie,"Ice present, filter dropped but onto bleached/milliQ'd surface",5:08,5.13,1,49,49 bottom
+132,132A,3,1:15,6/03/2021,-66.95377,75.0081,CTD,CTD 50,381,bottom,-0.92,No,AB,5:15,2A+2B,Jez/Dez,No sea ice but bergy bits,4:00,4,1,50,50 bottom
+133,133A,6,1:45,6/03/2021,-66.95265,75.0055,CTD,CTD 50,5,top,-0.44,No,AB,5:15,2A+2B,Jez/Dez,No sea ice but bergy bits,3:30,3.5,1,50,50 top
+134,134A,2,5:10,6/03/2021,-66.80133,75.00278,CTD,CTD 51,1754,bottom,-0.1,No,AB,7:46,2A+2B,Jez/Dez,,2:36,2.6,1,51,51 bottom
+135,135A,7,6:26,6/03/2021,-66.79658,74.99742,CTD,CTD 51,5,top,-0.5,No,AB,7:46,2A+2B,Jez/Dez,,1:20,1.33,1,51,51 top
+136,136A,10,12:17,6/03/2021,-66.65215,74.99828,CTD,CTD 52,2147,bottom,-0.02,No,AB,15:34,2A+2B,Christine,,3:17,3.28,1,52,52 bottom
+137,137A,1,13:33,6/03/2021,-66.64993,75.00143,CTD,CTD 52,5,top,-0.43,No,AB,15:34,2A+2B,Christine,3L filtered,2:01,2.02,0.6,52,52 top
+138,138A,6,16:17,6/03/2021,-66.49977,75.0024,CTD,CTD 53,2430,bottom,-0.096,No,AB,0:30,2A+2B,Jez,left out of freezer for nearly 24 hours,8:13,8.22,1,53,53 bottom
+139,139A,11,17:25,6/03/2021,-66.49948,75.00257,CTD,CTD 53,5,top,-0.48,No,AB,0:30,2A+2B,Jez,"4.5L filtered in 1 hour, left out of freezer for nearly 24 hour, sorry!",7:05,7.08,0.9,53,53 top
+140,140A,10,,?,,,,MilliQ,,,,,AB,22:00,2A+2B,AK/SB,,22:00,22,1,, 
+141,141A,7,3:37,7/03/2021,-65.99946,75.00157,CTD,CTD 54,3034,bottom,-0.12,No,AB,22:00,2A+2B,AK/SB,,18:23,18.38,1,54,54 bottom
+142,142A,2,5:19,7/03/2021,-66.00067,75.00082,CTD,CTD 54,5,top,-0.14,No,AB,0:15,2A+2B,AK/SB,,18:56,18.93,1,54,54 top
+143,143A,3,15:06,7/03/2021,-65.00145,74.99887,CTD,CTD 55,3219,bottom,-0.11,No,AB,0:15,2A+2B,AK/SB,,9:09,9.15,1,55,55 bottom
+144,144A,1,16:31,7/03/2021,-65.0011,74.99887,CTD,CTD 55,5,top,0.37,No,AB,1:50,2A+2B,Jess,,9:19,9.32,1,55,55 top
+145,145A,10,22:09,8/03/2021,-62.9955,76.17317,Target trawl,TT 15,surface,,1.13,No,AB,1:25,2A+2B,Derek,in swarm,3:16,3.27,1,, 
+146,146A,11,22:37,8/03/2021,-62.99167,76.18867,Target trawl,TT 15,surface,,1.12,No,AB,1:25,2A+2B,Derek,in swarm,2:48:00 AM,2.8,1,, 
+147,147A,3,22:42,8/03/2021,-62.99133,76.18367,Target trawl,TT 15,surface,,1.12,No,AB,2:20,2A+2B,Derek,immediately after swarm. Very slow. --> replaced broken hose clamp on suction side half way through. Only 3.5 L pumped,3:38,3.63,1,, 
+148,148A,6,22:47,8/03/2021,-62.99083,76.17717,Target trawl,TT 15,surface,,1.12,No,AB,2:20,2A+2B,Derek,after swarm,3:33,3.55,1,, 
+149,149A,7,22:52,8/03/2021,-62.99033,76.1695,Target trawl,TT 15,surface,,1.14,No,AB,4:45,2A+2B,Derek,after swarm,5:53,5.88,1,, 
+151,151A,2,22:57,8/03/2021,-62.98983,76.16233,Target trawl,TT 15,surface,,1.14,No,AB,4:45,2A+2B,Derek,after swarm,5:48,5.8,1,, 
+152,152A,10,7:40,9/03/2021,-63.02047,76.18385,CTD,CTD 59,100,low,0.9,No,AB,11:04,2A+2B,Christine/Liv,krill swarm CTD,3:24,3.4,1,59,59 low
+153,153A,4,7:49,9/03/2021,-63.02028,76.18392,CTD,CTD 59,45,medium,0.8,No,AB,10:20,2A+2B,Christine/Liv,krill swarm CTD,2:31,2.52,1,59,59 medium
+154,154A,1,7:57,9/03/2021,-63.02035,76.1839,CTD,CTD 59,5,top,0.91,No,AB,10:20,2A+2B,Christine/Liv,krill swarm CTD,2:23,2.38,1,59,59 top
+161,161A,1,23:42,10/03/2021,-63,79.78817,Target trawl,TT 18,surface,,1.16,No,AB,2:01,2A+2B,Derek,,2:19,2.32,1,, 
+156,156A,2,23:49,10/03/2021,-62.99967,79.78083,Target trawl,TT 18,surface,,1.17,No,AB,2:01,2A+2B,Derek,,2:12,2.2,1,, 
+157,157A,1,23:56,10/03/2021,-62.99783,79.775,Target trawl,TT 18,surface,,1.16,No,AB,2:47,2A+2B,Derek,,2:51,2.85,1,, 
+158,158A,7,0:03,10/03/2021,-62.996,79.76867,Target trawl,TT 18,surface,,1.17,No,AB,2:47,2A+2B,Derek,,2:44,2.73,1,, 
+159,159A,3,0:15,10/03/2021,-62.998,79.78267,Target trawl,TT 18,surface,,1.16,No,AB,5:48,2A+2B,Derek,,5:33,5.55,1,, 
+155,155A,4,0:22,10/03/2021,-62.99933,79.781,Target trawl,TT 18,surface2,,1.16,No,AB,5:48,2A+2B,Derek,,5:26,5.43,1,, 
+162,162A,3,14:54,10/03/2021,-63.75235,79.99758,CTD,CTD 61,3740,bottom,-0.02,No,AB,18:30,2A+2B,Maddie,,3:36,3.6,1,61,61 bottom
+163,163A,4,16:26,10/03/2021,-63.75318,79.99693,CTD,CTD 61,5,top,0.72,No,AB,18:30,2A+2B,Maddie,,2:04,2.07,1,61,61 top
+164,164A,2,23:37,10/03/2021,-64.2549,79.99658,CTD,CTD 62,3680,bottom,-0.273,No,AB,2:30,2A+2B,Maddie,,2:53,2.88,1,62,62 bottom
+165,165A,7,0:59,11/03/2021,-64.25692,79.9981,CTD,CTD 62,5,top,0.624,No,AB,2:30,2A+2B,Maddie,,1:31,1.52,1,62,62 top
+166,166A,3,6:10,11/03/2021,-64.58468,79.9995,CTD,CTD 63,3597,bottom,-0.08,No,AB,12:25,2A+2B,Liv/Christine,,6:15,6.25,1,63,63 bottom
+167,167A,1,8:09,11/03/2021,-64.58583,79.9971,CTD,CTD 63,5,top,0.66,No,AB,12:25,2A+2B,Liv/Christine,,4:16,4.27,1,63,63 top
+168,168A,10,12:59,11/03/2021,-64.9207,80.00117,CTD,CTD 64,3566,bottom,-0.09,No,AB,16:30,2A+2B,Jess,,3:31,3.52,1,64,64 bottom
+169,169A,4,14:59,11/03/2021,-64.91937,80.00138,CTD,CTD 64,5,top,0.58,No,AB,16:30,2A+2B,Jess,,1:31,1.52,1,64,64 top
+170,170A,7,19:15,,,,,MilliQ,,,,,AB,19:20,2A+2B,Mads,,0:05,0.08,1,, 
+171,171A,1,20:32,11/03/2021,-65.18183,79.99967,CTD,CTD 65,3530,bottom,-0.1,No,AB,0:11,2A+2B,Derek,,3:39,3.65,1,65,65 bottom
+172,172A,3,22:06,11/03/2021,-65.18033,80.0005,CTD,CTD 65,5,top,-0.14,No,AB,0:11,2A+2B,Derek,,2:05,2.08,1,65,65 top
